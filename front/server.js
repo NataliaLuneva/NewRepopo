@@ -3,7 +3,7 @@ const app = express();
 
 const PORT = process.env.port || 3000;
 
-app.get('/health', (req, res) = {
+app.get('/health', (req, res) => {
 	res.status(200).json({
 		status: 'ok',
 		message: 'Rakendus tootab!',
