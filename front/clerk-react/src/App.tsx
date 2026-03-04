@@ -6,7 +6,7 @@ function App() {
     <div className="page">
       <header className="header">
         <div className="logo-section">
-          <img src="/logo.png" alt="Team Logo" className="logo" />
+          <img src="assets/react.svg" alt="Team Logo" className="logo" />
           <h2 className="team-name">From Galochka</h2>
         </div>
 
