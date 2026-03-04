@@ -18,7 +18,7 @@ app.get('/health', (req, res) => {
 });
 
 // 👉 ВАЖНО: для React Router
-app.get('*', (req, res) => {
+app.get('/royter', (req, res) => {
 	res.sendFile(path.join(__dirname, 'clerk-react/dist/index.html'));
 });
 
