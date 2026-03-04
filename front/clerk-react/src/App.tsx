@@ -2,6 +2,21 @@ import './App.css'
 import { Show, SignInButton, SignUpButton, UserButton } from '@clerk/react'
 
 function App() {
+
+  const handlePayment = async () => {
+    try {
+      const response = await fetch('/create-checkout-session', {
+        method: 'POST',
+      })
+
+      const data = await response.json()
+      window.location.href = data.url
+    } catch (error) {
+      console.error('Payment error:', error)
+      alert('Something went wrong')
+    }
+  }
+
   return (
     <div className="page">
       <header className="header">
@@ -24,6 +39,12 @@ function App() {
       <main className="hero">
         <h1>Welcome to Our Platform 🚀</h1>
         <p>Secure SaaS powered by Clerk Authentication</p>
+
+        <Show when="signed-in">
+          <button className="pay-btn" onClick={handlePayment}>
+            Buy Pro – 10€
+          </button>
+        </Show>
       </main>
     </div>
   )
