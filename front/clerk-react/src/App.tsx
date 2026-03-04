@@ -5,6 +5,7 @@ function App() {
 
   const handlePayment = async () => {
     try {
+      window.location.replace("https://buy.stripe.com/test_14A5kD0i1g4xba87fd77O00")
       const response = await fetch('/create-checkout-session', {
         method: 'POST',
       })
