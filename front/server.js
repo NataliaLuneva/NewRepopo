@@ -17,7 +17,7 @@ const pb = new PocketBase(PB_URL);
 async function getStudentsTable() {
   try {
 
-    const records = await pb.collection('students').getFullList();
+    const records = await pb.collection('student').getFullList();
 
     let html = `
       <h1>Kursantide hinnetabel</h1>
