@@ -18,6 +18,7 @@ async function getStudentsTable() {
   try {
 
     const records = await pb.collection('student').getFullList();
+    pb.admins.authWithPassword('jaroslava.makarova@ivkhk.ee', 'Morkovka');
 
     let html = `
       <h1>Kursantide hinnetabel</h1>
