@@ -47,7 +47,7 @@ app.get('/health', (req, res) => {
 });
 
 // ✅ Отдаём React build
-app.use(express.static(path.join(__dirname, 'clerk-react/dist')));
+app.use(express.static(path.join(__dirname, '/dist')));
 
 // ✅ React Router fallback (ВСЕГДА В КОНЦЕ)
 app.use((req, res) => {
