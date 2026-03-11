@@ -16,7 +16,7 @@ async function getStudentsTable() {
     const authData = await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
 
     // Теперь используем авторизованный объект pb для запроса
-    const records = await pb.collection('student').getFullList({
+    const records = await pb.collection('Student').getFullList({
       // Прописываем токен суперпользователя
       batch: 100, 
       $autoCancel: false
