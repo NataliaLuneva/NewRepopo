@@ -1,24 +1,23 @@
-require('dotenv').config();
 const express = require('express');
-const PocketBase = require('pocketbase/cjs'); // ametlik PocketBase SDK
+const PocketBase = require('pocketbase/cjs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const PB_URL = process.env.PB_URL;
+const PORT = 3000;
 
-if (!PB_URL) {
-  console.error("Keskkonnamuutuja PB_URL pole seadistatud!");
-  process.exit(1);
-}
+// Настройки PocketBase и суперпользователя
+const PB_URL = 'http://127.0.0.1:8090'; // URL вашего PocketBase сервера
+const PB_ADMIN_EMAIL = 'jaroslava.makarova@ivkhk.ee';
+const PB_ADMIN_PASSWORD = 'Morkovka';
 
 const pb = new PocketBase(PB_URL);
 
-
 async function getStudentsTable() {
   try {
+    // Сначала логинимся как суперпользователь
+    await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
 
+    // Запрашиваем данные коллекции 'student'
     const records = await pb.collection('student').getFullList();
-    pb.admins.authWithPassword('jaroslava.makarova@ivkhk.ee', 'Morkovka');
 
     let html = `
       <h1>Kursantide hinnetabel</h1>
@@ -33,7 +32,6 @@ async function getStudentsTable() {
         </thead>
         <tbody>
     `;
-
 
     for (const r of records) {
       html += `
@@ -54,7 +52,6 @@ async function getStudentsTable() {
     return `<h1>Viga andmebaasiga</h1><p>${err.message}</p>`;
   }
 }
-
 
 app.get('/', async (req, res) => {
   const html = await getStudentsTable();
