@@ -4,8 +4,7 @@ const PocketBase = require('pocketbase/cjs');
 const app = express();
 const PORT = 3000;
 
-// Настройки PocketBase и суперпользователя
-const PB_URL = 'http://127.0.0.1:8090'; // URL вашего PocketBase сервера
+const PB_URL = 'http://127.0.0.1:8090';
 const PB_ADMIN_EMAIL = 'jaroslava.makarova@ivkhk.ee';
 const PB_ADMIN_PASSWORD = 'Morkovka';
 
@@ -13,11 +12,15 @@ const pb = new PocketBase(PB_URL);
 
 async function getStudentsTable() {
   try {
-    // Сначала логинимся как суперпользователь
-    await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
+    // Логинимся как суперпользователь
+    const authData = await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
 
-    // Запрашиваем данные коллекции 'student'
-    const records = await pb.collection('student').getFullList();
+    // Теперь используем авторизованный объект pb для запроса
+    const records = await pb.collection('student').getFullList({
+      // Прописываем токен суперпользователя
+      batch: 100, 
+      $autoCancel: false
+    });
 
     let html = `
       <h1>Kursantide hinnetabel</h1>
@@ -59,9 +62,5 @@ app.get('/', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`============================`);
-  console.log(`Server töötab!`);
-  console.log(`Port: ${PORT}`);
-  console.log(`PocketBase URL: ${PB_URL}`);
-  console.log(`============================`);
+  console.log(`Server töötab! Port: ${PORT}`);
 });
