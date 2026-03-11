@@ -47,11 +47,11 @@ app.get('/health', (req, res) => {
 });
 
 // ✅ Отдаём React build
-app.use(express.static(path.join(__dirname, '/dist')));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // ✅ React Router fallback (ВСЕГДА В КОНЦЕ)
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'clerk-react/dist/index.html'));
+  res.sendFile(path.join(__dirname, 'dist/index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
