@@ -1,59 +1,22 @@
 const express = require('express');
-const path = require('path');
-const Stripe = require('stripe');
-
 const app = express();
+
 const PORT = process.env.PORT || 3000;
+const NIMI = process.env.MY_NAME || "Tester Bob";
 
-const stripe = new Stripe(process.env.VITE_CLERK_PUBLISHABLE_KEY);
-
-app.use(express.json());
 
 // ✅ Stripe checkout
-app.post('/create-checkout-session', async (req, res) => {
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'eur',
-            product_data: {
-              name: 'Pro Subscription',
-            },
-            unit_amount: 1000, // 10€
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${req.headers.origin}/success`,
-      cancel_url: `${req.headers.origin}/cancel`,
-    });
-
-    res.json({ url: session.url });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Stripe error' });
-  }
-});
-
-// ✅ Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    uptime: process.uptime()
-  });
-});
-
-// ✅ Отдаём React build
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// ✅ React Router fallback (ВСЕГДА В КОНЦЕ)
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'dist/index.html'));
+app.get('/', (req, res) =>{
+  res.send(`
+    <h1>DB is working!</h1>
+    <p>Hi, ${NIMI}!</p>
+    <p>Status: <b>ONLINE</b></p>
+  `);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`============================`);
+  console.log(`Niminal server is UP!`);
+  console.log(`PORT: ${PORT}`);
+  console.log(`============================`);
 });
