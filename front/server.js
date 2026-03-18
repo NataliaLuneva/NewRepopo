@@ -8,7 +8,7 @@ const PORT = 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// 1. ВЕБХУК
+// --- ВЕБХУК ---
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
@@ -38,8 +38,13 @@ app.get('/', async (req, res) => {
     const isUser = me.role === 'user';
 
     try {
+        // 1. Загружаем доступные
         const availableItems = await pb.collection('inventory').getFullList({ filter: 'status != "sold"', sort: '-created' });
+        
+        // 2. Загружаем проданные (ТОЛЬКО ДЛЯ АДМИНА И ВОРКЕРА)
         const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ filter: 'status = "sold"', sort: '-updated' }) : [];
+        
+        // 3. Загружаем юзеров (ТОЛЬКО ДЛЯ АДМИНА)
         const allUsers = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
         let html = `
@@ -48,11 +53,12 @@ app.get('/', async (req, res) => {
             .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 25px; }
             table { width: 100%; border-collapse: collapse; }
             th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
-            .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; display: inline-block; text-align:center; }
+            .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; display: inline-block; }
             .avatar { width: 35px; height: 35px; border-radius: 50%; object-fit: cover; background: #eee; margin-right: 10px; vertical-align: middle; }
             .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75em; font-weight: bold; text-transform: uppercase; }
             .role-admin { background: #fee2e2; color: #991b1b; }
             .role-user { background: #dcfce7; color: #166534; }
+            .price { color: #10b981; font-weight: bold; }
         </style>
 
         <div style="max-width:1200px; margin:0 auto;">
@@ -66,7 +72,7 @@ app.get('/', async (req, res) => {
 
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Управление пользователями</h3>
+                <h3>👥 Пользователи</h3>
                 <form method="POST" action="/add-user" style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px; margin-bottom:20px;">
                     <input name="email" placeholder="Email" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="password" type="password" placeholder="Пароль" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
@@ -80,19 +86,28 @@ app.get('/', async (req, res) => {
                     <tr>
                         <td>${u.email}</td>
                         <td><span class="badge">${u.role}</span></td>
-                        <td>${u.id !== me.id ? `<a href="/del-user/${u.id}" style="color:#ef4444; text-decoration:none;">Удалить</a>` : ''}</td>
+                        <td>${u.id !== me.id ? `<a href="/del-user/${u.id}" style="color:#ef4444; text-decoration:none;">Удалить</a>` : '<b>Вы</b>'}</td>
                     </tr>`).join('')}
                 </table>
             </div>
             ` : ''}
 
             <div class="card">
-                <h3>📦 Товары в наличии</h3>
+                <h3>📦 Склад (Доступно)</h3>
+                ${isAdmin ? `
+                <form method="POST" action="/add-inventory" style="display:grid; grid-template-columns: 3fr 1fr 1fr; gap:10px; margin-bottom:20px;">
+                    <input name="device" placeholder="Название" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
+                    <input name="price" type="number" placeholder="Цена" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
+                    <button type="submit" class="btn" style="background:#1e293b; color:white;">Добавить</button>
+                </form>
+                ` : ''}
                 <table>
+                    <thead><tr><th>Название</th><th>Цена</th>${!isUser ? '<th>Работа</th>' : ''}<th>Действие</th></tr></thead>
                     ${availableItems.map(i => `
                     <tr>
                         <td><b>${i.device}</b></td>
-                        <td style="color:#10b981; font-weight:bold;">${i.price} $</td>
+                        <td class="price">${i.price} $</td>
+                        ${!isUser ? `<td>${i.work}</td>` : ''}
                         <td>
                             ${isUser ? `
                                 <form method="POST" action="/purchase"><input type="hidden" name="id" value="${i.id}"><button class="btn" style="background:#6366f1; color:white;">КУПИТЬ</button></form>
@@ -106,69 +121,48 @@ app.get('/', async (req, res) => {
                     </tr>`).join('')}
                 </table>
             </div>
+
+            ${(isAdmin || isWorker) ? `
+            <div class="card" style="border-left: 5px solid #10b981;">
+                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ (ПРОДАНО)</h3>
+                ${soldItems.length === 0 ? '<p style="color:gray;">Пока ничего не продано.</p>' : `
+                <table>
+                    <thead><tr><th>Товар</th><th>Цена</th><th>Дата продажи</th></tr></thead>
+                    <tbody>
+                        ${soldItems.map(s => `
+                        <tr>
+                            <td><del>${s.device}</del></td>
+                            <td style="font-weight:bold;">${s.price} $</td>
+                            <td style="color:gray; font-size:0.9em;">${new Date(s.updated).toLocaleString()}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+                `}
+            </div>
+            ` : ''}
         </div>`;
         res.send(html);
-    } catch (e) { res.send("Ошибка: " + e.message); }
+    } catch (e) { res.send("Ошибка загрузки: " + e.message); }
 });
 
-// --- ЛОГИКА РЕГИСТРАЦИИ (ПОЛЬЗОВАТЕЛЬ ПО ДЕФОЛТУ) ---
+// --- ОСТАЛЬНЫЕ РОУТЫ (РЕГИСТРАЦИЯ, ЛОГИН, УДАЛЕНИЕ) ---
+
 app.get('/register', (req, res) => {
-    res.send(`
-    <style>
-        body { margin:0; background: #0f172a; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
-        .card { background: #1e293b; padding: 40px; border-radius: 20px; width: 350px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #334155; color: white; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #10b981; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top:10px; }
-        a { color: #94a3b8; text-decoration: none; font-size: 0.9em; display: block; margin-top: 15px; }
-    </style>
-    <div class="card">
-        <h2>Регистрация</h2>
-        <form method="POST" action="/register">
-            <input name="email" type="email" placeholder="Ваш Email" required>
-            <input name="password" type="password" placeholder="Пароль (мин. 8 симв.)" required>
-            <button type="submit">Создать аккаунт</button>
-        </form>
-        <a href="/login">Уже есть аккаунт? Войти</a>
-    </div>`);
+    res.send(`<style>body{margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;color:white;}.card{background:#1e293b;padding:40px;border-radius:20px;width:350px;text-align:center;}input{width:100%;padding:12px;margin:10px 0;border-radius:8px;border:none;background:#334155;color:white;box-sizing:border-box;}button{width:100%;padding:12px;background:#10b981;border:none;color:white;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:10px;}a{color:#94a3b8;text-decoration:none;font-size:0.9em;display:block;margin-top:15px;}</style>
+    <div class="card"><h2>Регистрация</h2><form method="POST" action="/register"><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Пароль (8+ симв.)" required><button>Создать аккаунт</button></form><a href="/login">Войти</a></div>`);
 });
 
 app.post('/register', async (req, res) => {
     try {
-        const data = {
-            "email": req.body.email,
-            "password": req.body.password,
-            "passwordConfirm": req.body.password,
-            "role": "user", // <--- ДЕФОЛТНАЯ РОЛЬ
-            "emailVisibility": true
-        };
-        await pb.collection('users').create(data);
-        // Сразу логиним после регистрации
+        await pb.collection('users').create({ "email": req.body.email, "password": req.body.password, "passwordConfirm": req.body.password, "role": "user", "emailVisibility": true });
         await pb.collection('users').authWithPassword(req.body.email, req.body.password);
         res.redirect('/');
-    } catch (e) {
-        res.status(400).send(`Ошибка регистрации: ${e.message}. Помните, пароль минимум 8 символов! <br><a href="/register">Назад</a>`);
-    }
+    } catch (e) { res.status(400).send("Ошибка: " + e.message); }
 });
 
-// --- ОСТАЛЬНЫЕ РОУТЫ ---
 app.get('/login', (req, res) => {
-    res.send(`
-    <style>
-        body { margin:0; background: #0f172a; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
-        .card { background: #1e293b; padding: 40px; border-radius: 20px; width: 350px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #334155; color: white; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        a { color: #94a3b8; text-decoration: none; font-size: 0.9em; display: block; margin-top: 15px; }
-    </style>
-    <div class="card">
-        <h2>Вход в систему</h2>
-        <form method="POST" action="/login">
-            <input name="email" placeholder="Email" required>
-            <input name="password" type="password" placeholder="Пароль" required>
-            <button>Войти</button>
-        </form>
-        <a href="/register">Нет аккаунта? Регистрация</a>
-    </div>`);
+    res.send(`<style>body{margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;color:white;}.card{background:#1e293b;padding:40px;border-radius:20px;width:350px;text-align:center;}input{width:100%;padding:12px;margin:10px 0;border-radius:8px;border:none;background:#334155;color:white;box-sizing:border-box;}button{width:100%;padding:12px;background:#6366f1;border:none;color:white;border-radius:8px;font-weight:bold;cursor:pointer;}a{color:#94a3b8;text-decoration:none;font-size:0.9em;display:block;margin-top:15px;}</style>
+    <div class="card"><h2>Вход</h2><form method="POST" action="/login"><input name="email" placeholder="Email" required><input name="password" type="password" placeholder="Пароль" required><button>Войти</button></form><a href="/register">Регистрация</a></div>`);
 });
 
 app.post('/login', async (req, res) => {
@@ -176,21 +170,15 @@ app.post('/login', async (req, res) => {
     catch (e) { res.status(400).send('Ошибка входа'); }
 });
 
+app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
+
 app.post('/add-user', async (req, res) => {
-    try {
-        await pb.collection('users').create({ 
-            email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, 
-            role: req.body.role, emailVisibility: true 
-        });
-        res.redirect('/');
-    } catch (e) { res.send("Ошибка: " + e.message); }
+    try { await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: req.body.role, emailVisibility: true }); res.redirect('/'); } catch (e) { res.send(e.message); }
 });
 
 app.get('/del-user/:id', async (req, res) => {
     try { await pb.collection('users').delete(req.params.id); res.redirect('/'); } catch (e) { res.send(e.message); }
 });
-
-app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
 app.post('/purchase', async (req, res) => {
     try {
