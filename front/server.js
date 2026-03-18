@@ -1,6 +1,5 @@
 const express = require('express');
 const PocketBase = require('pocketbase/cjs');
-const bodyParser = require('body-parser');
 const stripe = require('stripe')('sk_test_51TCHFTRlVO81FVeef3B915pGfBvbQqhMAi1sSUkM06jOxkgUrSmfrwul9ezTdcCfqde2dBjdUxBDdBjOYWRcBcWG004OYs4Xf8');
 
 const app = express();
@@ -9,15 +8,17 @@ const PORT = 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// --- WEBHOOK (ОБЯЗАТЕЛЬНО ПЕРЕД ОБЫЧНЫМ BODYPARSER) ---
+// 1. ВЕБХУК ДОЛЖЕН ИДТИ ПЕРВЫМ (использует express.raw)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = 'whsec_1a1b3b427aa0c934f99ee9f8dbb8b7c559404bdbf9f6869f4fbd25fb4d11a8b5';// <--- ПРОВЕРЬ ЭТОТ КЛЮЧ
+    // Твой секрет из терминала Stripe CLI
+    const endpointSecret = 'whsec_1a1b3b427aa0c934f99ee9f8dbb8b7c559404bdbf9f6869f4fbd25fb4d11a8b5';
     let event;
 
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
+        console.log(`❌ Ошибка проверки подписи: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
@@ -26,19 +27,21 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         const itemId = session.metadata.itemId;
         
         try {
-            // МЕНЯЕМ СТАТУС НА SOLD — ТЕПЕРЬ ОНО ПОЯВИТСЯ В ТАБЛИЦЕ ПРОДАЖ
+            // МЕНЯЕМ СТАТУС В POCKETBASE
             await pb.collection('inventory').update(itemId, { work: 'sold' });
-            console.log(`ТОВАР ${itemId} УСПЕШНО ПРОДАН`);
+            console.log(`✅ УСПЕХ: Товар ${itemId} помечен как SOLD`);
         } catch (e) {
-            console.error("Ошибка обновления базы:", e);
+            console.error("❌ Ошибка при обновлении PocketBase:", e);
         }
     }
     res.json({ received: true });
 });
 
-app.use(bodyParser.urlencoded({ extended: true }));
+// 2. ОСТАЛЬНЫЕ НАСТРОЙКИ (Парсинг обычных форм)
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// --- ГЛАВНАЯ ПАНЕЛЬ ---
+// --- ГЛАВНАЯ СТРАНИЦА ---
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
     const me = pb.authStore.model;
@@ -59,7 +62,6 @@ app.get('/', async (req, res) => {
             th, td { padding: 15px; border-bottom: 1px solid #eee; text-align: left; }
             .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; }
             .btn-buy { background: #6366f1; color: white; }
-            .btn-buy:hover { background: #4f46e5; }
             .price { color: #10b981; font-weight: bold; font-size: 1.1em; }
             .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         </style>
@@ -133,7 +135,7 @@ app.get('/', async (req, res) => {
     } catch (e) { res.send(e.message); }
 });
 
-// --- РОУТЫ УПРАВЛЕНИЯ ---
+// --- РОУТЫ ---
 app.post('/purchase', async (req, res) => {
     try {
         const item = await pb.collection('inventory').getOne(req.body.id);
@@ -175,7 +177,7 @@ app.get('/del-user/:id', async (req, res) => {
     res.redirect('/');
 });
 
-// --- ТОТ САМЫЙ КРАСИВЫЙ ТЕМНЫЙ ВХОД ---
+// --- КРАСИВЫЙ ТЕМНЫЙ ВХОД ---
 app.get('/login', (req, res) => {
     res.send(`
     <style>
@@ -183,11 +185,9 @@ app.get('/login', (req, res) => {
         .login-card { background: #1e293b; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 350px; text-align: center; color: white; }
         input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #334155; color: white; box-sizing: border-box; }
         button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        button:hover { background: #4f46e5; }
     </style>
     <div class="login-card">
         <h2>Welcome Back</h2>
-        <p style="color:#94a3b8">Введите данные для входа</p>
         <form method="POST">
             <input name="email" placeholder="Email" required>
             <input name="password" type="password" placeholder="Пароль" required>
@@ -203,4 +203,5 @@ app.post('/login', async (req, res) => {
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
+// ЗАПУСК НА ВСЕХ ИНТЕРФЕЙСАХ
 app.listen(PORT, '0.0.0.0', () => console.log(`FULL SYSTEM: http://localhost:${PORT}`));
