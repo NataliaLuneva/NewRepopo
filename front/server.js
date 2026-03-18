@@ -7,7 +7,7 @@ const PORT = 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
-const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
+const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
 
 // --- СТРАНИЦА ВХОДА ---
