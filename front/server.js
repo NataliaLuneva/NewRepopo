@@ -1,8 +1,7 @@
 const express = require('express');
 const PocketBase = require('pocketbase/cjs');
 const bodyParser = require('body-parser');
-const multer = require('multer'); // Для загрузки файлов
-const upload = multer(); 
+const bodyParser = require('body-parser');
 
 const app = express();
 const PORT = 3000;
