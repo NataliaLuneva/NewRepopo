@@ -4,7 +4,7 @@ const PocketBase = require('pocketbase/cjs');
 const app = express();
 const PORT = 3000;
 
-const PB_URL = 'http://127.0.0.1:8090';
+const PB_URL = 'http://10.245.0.103:8090/_/';
 const PB_ADMIN_EMAIL = 'jaroslava.makarova@ivkhk.ee';
 const PB_ADMIN_PASSWORD = 'Morkovka';
 
