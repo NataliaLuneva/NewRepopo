@@ -8,17 +8,16 @@ const PORT = 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// 1. ВЕБХУК ДОЛЖЕН ИДТИ ПЕРВЫМ (использует express.raw)
+// 1. ВЕБХУК (ПИШЕТ В КОЛОНКУ 'sold')
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    // Твой секрет из терминала Stripe CLI
-    const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH';
+    const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
     let event;
 
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
-        console.log(`❌ Ошибка проверки подписи: ${err.message}`);
+        console.log(`❌ Webhook Signature Error: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
@@ -27,17 +26,16 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         const itemId = session.metadata.itemId;
         
         try {
-            // МЕНЯЕМ СТАТУС В POCKETBASE
-            await pb.collection('inventory').update(itemId, { work: 'sold' });
-            console.log(`✅ УСПЕХ: Товар ${itemId} помечен как SOLD`);
+            // ОБНОВЛЯЕМ ИМЕННО ПОЛЕ 'sold'
+            await pb.collection('inventory').update(itemId, { sold: 'sold' });
+            console.log(`✅ ТОВАР ${itemId} УСПЕШНО ПРОДАН`);
         } catch (e) {
-            console.error("❌ Ошибка при обновлении PocketBase:", e);
+            console.error("❌ Ошибка PocketBase в вебхуке:", e.message);
         }
     }
     res.json({ received: true });
 });
 
-// 2. ОСТАЛЬНЫЕ НАСТРОЙКИ (Парсинг обычных форм)
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
@@ -50,8 +48,18 @@ app.get('/', async (req, res) => {
     const isUser = me.role === 'user';
 
     try {
-        const availableItems = await pb.collection('inventory').getFullList({ filter: 'work != "sold"', sort: '-created' });
-        const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ filter: 'work = "sold"', sort: '-updated' }) : [];
+        // Доступные товары (где sold НЕ равен "sold")
+        const availableItems = await pb.collection('inventory').getFullList({ 
+            filter: 'sold != "sold"', 
+            sort: '-created' 
+        });
+
+        // Проданные товары (только для админа и воркера)
+        const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ 
+            filter: 'sold = "sold"', 
+            sort: '-updated' 
+        }) : [];
+
         const allUsers = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
         let html = `
@@ -60,10 +68,13 @@ app.get('/', async (req, res) => {
             .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 25px; }
             table { width: 100%; border-collapse: collapse; }
             th, td { padding: 15px; border-bottom: 1px solid #eee; text-align: left; }
-            .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; }
+            .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; display: inline-block; }
             .btn-buy { background: #6366f1; color: white; }
             .price { color: #10b981; font-weight: bold; font-size: 1.1em; }
             .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+            .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8em; font-weight: bold; }
+            .badge-work { background: #dcfce7; color: #166534; }
+            .badge-not { background: #fee2e2; color: #991b1b; }
         </style>
 
         <div style="max-width:1200px; margin:0 auto;">
@@ -77,7 +88,7 @@ app.get('/', async (req, res) => {
 
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Управление доступом</h3>
+                <h3>👥 Управление пользователями</h3>
                 <form method="POST" action="/add-user" style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px;">
                     <input name="email" placeholder="Email" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="password" type="password" placeholder="Пароль" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
@@ -87,33 +98,33 @@ app.get('/', async (req, res) => {
                     <button type="submit" class="btn" style="background:#10b981; color:white;">Создать</button>
                 </form>
                 <table style="margin-top:20px;">
-                    ${allUsers.map(u => `<tr><td>${u.email}</td><td><strong>${u.role}</strong></td><td><a href="/del-user/${u.id}" style="color:#ef4444;">Удалить</a></td></tr>`).join('')}
+                    ${allUsers.map(u => `<tr><td>${u.email}</td><td><b>${u.role}</b></td><td><a href="/del-user/${u.id}" style="color:#ef4444;">Удалить</a></td></tr>`).join('')}
                 </table>
             </div>
             ` : ''}
 
             <div class="card">
-                <h3>📦 ${isUser ? 'Доступные товары' : 'Склад'}</h3>
+                <h3>📦 ${isUser ? 'Доступные товары' : 'Склад (В наличии)'}</h3>
                 ${isAdmin ? `
                 <form method="POST" action="/add-inventory" style="display:grid; grid-template-columns: 3fr 1fr 1fr; gap:10px; margin-bottom:20px;">
-                    <input name="device" placeholder="Название" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
+                    <input name="device" placeholder="Название товара" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="price" type="number" placeholder="Цена" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <button type="submit" class="btn" style="background:#1e293b; color:white;">Добавить</button>
                 </form>
                 ` : ''}
                 <table>
-                    <thead><tr><th>Название</th><th>Цена</th>${!isUser ? '<th>Статус</th>' : ''}<th>Действие</th></tr></thead>
+                    <thead><tr><th>Название</th><th>Цена</th>${!isUser ? '<th>Состояние</th>' : ''}<th>Действие</th></tr></thead>
                     ${availableItems.map(i => `
                     <tr>
                         <td><b>${i.device}</b></td>
                         <td class="price">${i.price} $</td>
-                        ${!isUser ? `<td>${i.work}</td>` : ''}
+                        ${!isUser ? `<td><span class="badge ${i.work === 'working' ? 'badge-work' : 'badge-not'}">${i.work}</span></td>` : ''}
                         <td>
                             ${isUser ? `
                                 <form method="POST" action="/purchase"><input type="hidden" name="id" value="${i.id}"><button class="btn btn-buy">КУПИТЬ</button></form>
                             ` : `
                                 <div style="display:flex; gap:10px;">
-                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Статус</button></form>
+                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Тех. состояние</button></form>
                                     ${isAdmin ? `<a href="/del-item/${i.id}" class="btn" style="background:#fee2e2; color:#ef4444;">Удалить</a>` : ''}
                                 </div>
                             `}
@@ -123,19 +134,20 @@ app.get('/', async (req, res) => {
             </div>
 
             ${(isAdmin || isWorker) ? `
-            <div class="card" style="border-left: 6px solid #ef4444;">
-                <h3 style="color:#ef4444;">🔴 ИСТОРИЯ ПРОДАЖ (SOLD)</h3>
+            <div class="card" style="border-left: 6px solid #10b981;">
+                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ (SOLD)</h3>
                 <table>
+                    <thead><tr><th>Товар</th><th>Цена</th><th>Дата продажи</th></tr></thead>
                     ${soldItems.map(s => `<tr><td><del>${s.device}</del></td><td>${s.price} $</td><td style="color:gray;">${new Date(s.updated).toLocaleString()}</td></tr>`).join('')}
                 </table>
             </div>
             ` : ''}
         </div>`;
         res.send(html);
-    } catch (e) { res.send(e.message); }
+    } catch (e) { res.send("Ошибка загрузки данных: " + e.message); }
 });
 
-// --- РОУТЫ ---
+// --- РОУТЫ УПРАВЛЕНИЯ ---
 app.post('/purchase', async (req, res) => {
     try {
         const item = await pb.collection('inventory').getOne(req.body.id);
@@ -158,7 +170,8 @@ app.post('/toggle-status', async (req, res) => {
 });
 
 app.post('/add-inventory', async (req, res) => {
-    await pb.collection('inventory').create({ device: req.body.device, price: req.body.price, work: 'working' });
+    // При создании нового товара поле 'sold' пустое по умолчанию
+    await pb.collection('inventory').create({ device: req.body.device, price: req.body.price, work: 'working', sold: '' });
     res.redirect('/');
 });
 
@@ -177,7 +190,6 @@ app.get('/del-user/:id', async (req, res) => {
     res.redirect('/');
 });
 
-// --- КРАСИВЫЙ ТЕМНЫЙ ВХОД ---
 app.get('/login', (req, res) => {
     res.send(`
     <style>
@@ -187,21 +199,20 @@ app.get('/login', (req, res) => {
         button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
     </style>
     <div class="login-card">
-        <h2>Welcome Back</h2>
+        <h2>System Login</h2>
         <form method="POST">
             <input name="email" placeholder="Email" required>
             <input name="password" type="password" placeholder="Пароль" required>
-            <button>Войти в систему</button>
+            <button>Войти</button>
         </form>
     </div>`);
 });
 
 app.post('/login', async (req, res) => {
     try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); }
-    catch (e) { res.status(400).send('Ошибка входа'); }
+    catch (e) { res.status(400).send('Ошибка входа: неверные данные'); }
 });
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
-// ЗАПУСК НА ВСЕХ ИНТЕРФЕЙСАХ
-app.listen(PORT, '0.0.0.0', () => console.log(`FULL SYSTEM: http://localhost:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`SERVER RUNNING ON PORT ${PORT}`));
