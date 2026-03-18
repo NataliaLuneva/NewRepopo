@@ -4,7 +4,7 @@ const PocketBase = require('pocketbase/cjs');
 const app = express();
 const PORT = 3000;
 
-const PB_URL = 'http://10.245.0.103:8090/_/#/collections?collection=pbc_3922585925&filter=&sort=-%40rowid';
+const PB_URL = 'http://10.245.0.103:8090';
 const PB_ADMIN_EMAIL = 'jaroslava.makarova@ivkhk.ee';
 const PB_ADMIN_PASSWORD = 'Morkovka';
 
