@@ -8,30 +8,21 @@ const PORT = 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// 1. ВЕБХУК (ОБРАБОТКА ОПЛАТЫ)
+// 1. ВЕБХУК
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
     let event;
-
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
-        console.log(`❌ Ошибка подписи: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
-
     if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const itemId = session.metadata.itemId;
-        
+        const itemId = event.data.object.metadata.itemId;
         try {
-            // ОБНОВЛЯЕМ КОЛОНКУ status НА ЗНАЧЕНИЕ sold
             await pb.collection('inventory').update(itemId, { status: 'sold' });
-            console.log(`✅ ТОВАР ${itemId} ТЕПЕРЬ В СТАТУСЕ SOLD`);
-        } catch (e) {
-            console.error("❌ Ошибка обновления базы:", e.message);
-        }
+        } catch (e) { console.error("PB Update Error:", e.message); }
     }
     res.json({ received: true });
 });
@@ -48,18 +39,10 @@ app.get('/', async (req, res) => {
     const isUser = me.role === 'user';
 
     try {
-        // Доступные товары (status НЕ равен "sold")
-        const availableItems = await pb.collection('inventory').getFullList({ 
-            filter: 'status != "sold"', 
-            sort: '-created' 
-        });
-
-        // Проданные товары (status РАВЕН "sold")
-        const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ 
-            filter: 'status = "sold"', 
-            sort: '-updated' 
-        }) : [];
-
+        const availableItems = await pb.collection('inventory').getFullList({ filter: 'status != "sold"', sort: '-created' });
+        const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ filter: 'status = "sold"', sort: '-updated' }) : [];
+        
+        // Получаем список пользователей для админа
         const allUsers = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
         let html = `
@@ -67,29 +50,32 @@ app.get('/', async (req, res) => {
             body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
             .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 25px; }
             table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 15px; border-bottom: 1px solid #eee; text-align: left; }
+            th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
             .btn { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; display: inline-block; }
             .btn-buy { background: #6366f1; color: white; }
-            .price { color: #10b981; font-weight: bold; font-size: 1.1em; }
-            .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-            .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8em; font-weight: bold; }
-            .badge-work { background: #dcfce7; color: #166534; }
-            .badge-not { background: #fee2e2; color: #991b1b; }
+            .price { color: #10b981; font-weight: bold; }
+            .header { display: flex; justify-content: space-between; align-items: center; }
+            .avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #e2e8f0; vertical-align: middle; margin-right: 10px; }
+            .user-info { display: flex; align-items: center; }
+            .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
         </style>
 
         <div style="max-width:1200px; margin:0 auto;">
             <div class="header card">
-                <div>
-                    <strong style="font-size: 1.2em;">${me.email}</strong> 
-                    <span style="color:#6366f1; margin-left:10px;">● ${me.role.toUpperCase()}</span>
+                <div class="user-info">
+                    <img class="avatar" src="${me.avatar ? pb.files.getUrl(me, me.avatar) : 'https://ui-avatars.com/api/?name='+me.email}" />
+                    <div>
+                        <strong>${me.email}</strong> <br>
+                        <span style="color:#6366f1; font-size:0.8em;">● ${me.role}</span>
+                    </div>
                 </div>
                 <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">ВЫЙТИ</a>
             </div>
 
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Пользователи</h3>
-                <form method="POST" action="/add-user" style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px;">
+                <h3>👥 Управление доступом</h3>
+                <form method="POST" action="/add-user" style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px; margin-bottom:20px;">
                     <input name="email" placeholder="Email" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="password" type="password" placeholder="Пароль" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <select name="role" style="padding:10px; border-radius:8px; border:1px solid #ddd;">
@@ -97,14 +83,26 @@ app.get('/', async (req, res) => {
                     </select>
                     <button type="submit" class="btn" style="background:#10b981; color:white;">Создать</button>
                 </form>
+                <table>
+                    <thead><tr><th>Аватар</th><th>Email</th><th>Роль</th><th>Действие</th></tr></thead>
+                    <tbody>
+                        ${allUsers.map(u => `
+                        <tr>
+                            <td><img class="avatar" src="${u.avatar ? pb.files.getUrl(u, u.avatar) : 'https://ui-avatars.com/api/?name='+u.email}" /></td>
+                            <td>${u.email}</td>
+                            <td><span class="badge" style="background:#e0e7ff; color:#4338ca;">${u.role}</span></td>
+                            <td><a href="/del-user/${u.id}" style="color:#ef4444; text-decoration:none; font-weight:bold;">Удалить</a></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
             </div>
             ` : ''}
 
             <div class="card">
-                <h3>📦 ${isUser ? 'Доступные товары' : 'Склад (В наличии)'}</h3>
+                <h3>📦 Склад товаров</h3>
                 ${isAdmin ? `
                 <form method="POST" action="/add-inventory" style="display:grid; grid-template-columns: 3fr 1fr 1fr; gap:10px; margin-bottom:20px;">
-                    <input name="device" placeholder="Название товара" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
+                    <input name="device" placeholder="Название" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="price" type="number" placeholder="Цена" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <button type="submit" class="btn" style="background:#1e293b; color:white;">Добавить</button>
                 </form>
@@ -115,13 +113,13 @@ app.get('/', async (req, res) => {
                     <tr>
                         <td><b>${i.device}</b></td>
                         <td class="price">${i.price} $</td>
-                        ${!isUser ? `<td><span class="badge ${i.work === 'working' ? 'badge-work' : 'badge-not'}">${i.work}</span></td>` : ''}
+                        ${!isUser ? `<td>${i.work}</td>` : ''}
                         <td>
                             ${isUser ? `
                                 <form method="POST" action="/purchase"><input type="hidden" name="id" value="${i.id}"><button class="btn btn-buy">КУПИТЬ</button></form>
                             ` : `
                                 <div style="display:flex; gap:10px;">
-                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Состояние</button></form>
+                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Статус</button></form>
                                     ${isAdmin ? `<a href="/del-item/${i.id}" class="btn" style="background:#fee2e2; color:#ef4444;">Удалить</a>` : ''}
                                 </div>
                             `}
@@ -132,19 +130,15 @@ app.get('/', async (req, res) => {
 
             ${(isAdmin || isWorker) ? `
             <div class="card" style="border-left: 6px solid #10b981;">
-                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ (STATUS: SOLD)</h3>
+                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ</h3>
                 <table>
-                    <thead><tr><th>Товар</th><th>Цена</th><th>Дата</th></tr></thead>
                     ${soldItems.map(s => `<tr><td><del>${s.device}</del></td><td>${s.price} $</td><td style="color:gray;">${new Date(s.updated).toLocaleString()}</td></tr>`).join('')}
                 </table>
             </div>
             ` : ''}
         </div>`;
         res.send(html);
-    } catch (e) { 
-        console.error(e);
-        res.send("Ошибка загрузки данных. Проверьте названия колонок в PocketBase (status и work)."); 
-    }
+    } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
 // --- РОУТЫ ---
@@ -170,13 +164,7 @@ app.post('/toggle-status', async (req, res) => {
 });
 
 app.post('/add-inventory', async (req, res) => {
-    // При создании status пустой, чтобы товар был в "Доступных"
-    await pb.collection('inventory').create({ 
-        device: req.body.device, 
-        price: req.body.price, 
-        work: 'working', 
-        status: '' 
-    });
+    await pb.collection('inventory').create({ device: req.body.device, price: req.body.price, work: 'working', status: '' });
     res.redirect('/');
 });
 
@@ -186,8 +174,10 @@ app.get('/del-item/:id', async (req, res) => {
 });
 
 app.post('/add-user', async (req, res) => {
-    await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: req.body.role, emailVisibility: true });
-    res.redirect('/');
+    try {
+        await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: req.body.role, emailVisibility: true });
+        res.redirect('/');
+    } catch (e) { res.send("Ошибка создания юзера: " + e.message); }
 });
 
 app.get('/del-user/:id', async (req, res) => {
@@ -214,14 +204,10 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
-    try { 
-        await pb.collection('users').authWithPassword(req.body.email, req.body.password); 
-        res.redirect('/'); 
-    } catch (e) { 
-        res.status(400).send('Ошибка входа: проверьте данные'); 
-    }
+    try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); }
+    catch (e) { res.status(400).send('Ошибка входа'); }
 });
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`FULL SYSTEM ONLINE ON PORT ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`SERVER RUNNING ON PORT ${PORT}`));
