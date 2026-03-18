@@ -105,7 +105,7 @@ app.get('/', async (req, res) => {
                                 <form method="POST" action="/change-role" style="margin:0;">
                                     <input type="hidden" name="userId" value="${u.id}">
                                     <select name="newRole" onchange="this.form.submit()">
-                                        <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
+                                        <option value="user" ${u.role === 'worker' ? 'selected' : ''}>Worker</option>
                                         <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
                                     </select>
                                 </form>
