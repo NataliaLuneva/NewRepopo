@@ -6,7 +6,7 @@ const PORT = 3000;
 
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const PB_ADMIN_EMAIL = 'jaroslava.makarova@ivkhk.ee';
-const PB_ADMIN_PASSWORD = 'Morkovka';
+const PB_ADMIN_PASSWORD = 'Morkovka0!';
 
 const pb = new PocketBase(PB_URL);
 
