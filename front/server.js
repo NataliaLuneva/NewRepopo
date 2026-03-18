@@ -12,7 +12,7 @@ const pb = new PocketBase(PB_URL);
 // --- WEBHOOK (ОБЯЗАТЕЛЬНО ПЕРЕД ОБЫЧНЫМ BODYPARSER) ---
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = 'hsec_1a1b3b427aa0c934f99ee9f8dbb8b7c559404bdbf9f6869f4fbd25fb4d11a8b5'; // <--- ПРОВЕРЬ ЭТОТ КЛЮЧ
+    const endpointSecret = 'whsec_1a1b3b427aa0c934f99ee9f8dbb8b7c559404bdbf9f6869f4fbd25fb4d11a8b5';// <--- ПРОВЕРЬ ЭТОТ КЛЮЧ
     let event;
 
     try {
