@@ -10,51 +10,22 @@ const PB_ADMIN_PASSWORD = 'Morkovka';
 
 const pb = new PocketBase(PB_URL);
 
-async function getStudentsTable() {
+async function debug() {
   try {
-    // Логинимся как суперпользователь
-    const authData = await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
+    await pb.admins.authWithPassword(PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD);
 
-    // Теперь используем авторизованный объект pb для запроса
-    const records = await pb.collection('Student').getFullList({
-      // Прописываем токен суперпользователя
-      batch: 100, 
-      $autoCancel: false
-    });
+    console.log("Auth valid:", pb.authStore.isValid);
 
-    let html = `
-      <h1>Kursantide hinnetabel</h1>
-      <table border="1" cellpadding="5" cellspacing="0">
-        <thead>
-          <tr>
-            <th>Student Name</th>
-            <th>Subject</th>
-            <th>Score</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    for (const r of records) {
-      html += `
-        <tr>
-          <td>${r.student_name || '-'}</td>
-          <td>${r.subject || '-'}</td>
-          <td>${r.score ?? '-'}</td>
-          <td>${r.status || '-'}</td>
-        </tr>
-      `;
-    }
-
-    html += '</tbody></table>';
-    return html;
+    const collections = await pb.collections.getFullList();
+    console.log("Collections:", collections.map(c => c.name));
 
   } catch (err) {
-    console.error("Viga PocketBase’ist andmete pärimisel:", err.message);
-    return `<h1>Viga andmebaasiga</h1><p>${err.message}</p>`;
+    console.log("FULL ERROR:");
+    console.log(err);
   }
 }
+
+debug();
 
 app.get('/', async (req, res) => {
   const html = await getStudentsTable();
