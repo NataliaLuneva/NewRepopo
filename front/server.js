@@ -10,13 +10,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// Ссылка на аватар (используем почту как подпись, если нет аватара)
 function getAvatarUrl(user) {
     if (!user || !user.avatar) return `https://via.placeholder.com/100?text=${user?.email?.split('@')[0] || 'User'}`;
     return `${PB_URL}api/files/_pb_users_auth_/${user.id}/${user.avatar}`;
 }
 
-// --- ЛОГИН ---
+// --- LOGIN ---
 app.get('/login', (req, res) => {
     res.send(`
         <style>
@@ -26,7 +25,7 @@ app.get('/login', (req, res) => {
             button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
         </style>
         <div class="card">
-            <h2 style="text-align:center">Inventory</h2>
+            <h2 style="text-align:center">Inventory System</h2>
             <form method="POST" action="/login">
                 <input type="email" name="email" placeholder="Email" required>
                 <input type="password" name="password" placeholder="Пароль" required>
@@ -40,12 +39,10 @@ app.post('/login', async (req, res) => {
     try {
         await pb.collection('users').authWithPassword(req.body.email, req.body.password);
         res.redirect('/');
-    } catch (e) {
-        res.status(400).send('Ошибка входа. <a href="/login">Назад</a>');
-    }
+    } catch (e) { res.status(400).send('Ошибка входа. <a href="/login">Назад</a>'); }
 });
 
-// --- ГЛАВНАЯ ---
+// --- MAIN PAGE ---
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
 
@@ -54,76 +51,85 @@ app.get('/', async (req, res) => {
 
     try {
         const inventory = await pb.collection('inventory').getFullList({ sort: '-created' });
-        // Получаем всех пользователей (админ видит список)
         const users = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
         let html = `
         <style>
-            body { font-family: sans-serif; background: #f8f9fa; padding: 20px; }
-            .container { max-width: 900px; margin: 0 auto; }
+            body { font-family: sans-serif; background: #f8f9fa; padding: 20px; color: #333; }
+            .container { max-width: 1000px; margin: 0 auto; }
             .section { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
             .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
             .avatar-circle { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 10px; border: 2px solid #007bff; }
             table { width: 100%; border-collapse: collapse; }
             th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
-            .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; color: white; background: #007bff; }
-            .status-working { color: green; font-weight: bold; }
-            .status-not-working { color: red; font-weight: bold; }
+            .price-tag { font-weight: bold; color: #2c3e50; background: #ecf0f1; padding: 2px 6px; border-radius: 4px; }
+            .status-working { color: #27ae60; font-weight: bold; }
+            .status-not-working { color: #e74c3c; font-weight: bold; }
+            .btn { padding: 8px 12px; border-radius: 4px; border: 1px solid #ddd; cursor: pointer; background: #fff; }
+            .btn-add { background: #2ecc71; color: white; border: none; }
         </style>
 
         <div class="container">
             <div class="header">
                 <div>
                     <img src="${getAvatarUrl(me)}" class="avatar-circle">
-                    <b>${me.email}</b> <span class="badge">${me.role}</span>
+                    <b>${me.email}</b> <span style="font-size:12px; color:grey;">(${me.role})</span>
                 </div>
-                <a href="/logout">Выйти</a>
+                <a href="/logout" style="color:#e74c3c; text-decoration:none; font-weight:bold;">Выйти</a>
             </div>
 
             ${isAdmin ? `
             <div class="section">
-                <h3>👥 Сотрудники (Workers)</h3>
+                <h3>👥 Сотрудники</h3>
                 <form method="POST" action="/add-user" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input type="email" name="email" placeholder="Email воркера" required style="padding:8px; flex:1;">
-                    <input type="password" name="password" placeholder="Пароль" required style="padding:8px; flex:1;">
-                    <input type="hidden" name="role" value="worker">
-                    <button type="submit" style="padding:8px 15px; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;">+ Создать Worker</button>
+                    <input type="email" name="email" placeholder="Email воркера" required style="flex:1; padding:8px;">
+                    <input type="password" name="password" placeholder="Пароль" required style="padding:8px;">
+                    <button type="submit" class="btn-add">Создать Worker</button>
                 </form>
                 <table>
-                    <thead><tr><th>Аватар</th><th>Email</th><th>Роль</th></tr></thead>
+                    <thead><tr><th>Email</th><th>Роль</th></tr></thead>
                     <tbody>
-                        ${users.map(u => `
-                        <tr>
-                            <td><img src="${getAvatarUrl(u)}" style="width:30px; border-radius:50%;"></td>
-                            <td>${u.email}</td>
-                            <td><b>${u.role}</b></td>
-                        </tr>`).join('')}
+                        ${users.map(u => `<tr><td>${u.email}</td><td>${u.role}</td></tr>`).join('')}
                     </tbody>
                 </table>
             </div>
             ` : ''}
 
             <div class="section">
-                <h3>📦 Инвентарь</h3>
+                <h3>📦 Инвентарь и Цены</h3>
                 ${isAdmin ? `
                 <form method="POST" action="/add-inventory" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input type="text" name="device" placeholder="Название товара" required style="padding:8px; flex:1;">
-                    <select name="work" style="padding:8px;"><option value="working">working</option><option value="not working">not working</option></select>
-                    <button type="submit" style="padding:8px 15px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer;">Добавить товар</button>
+                    <input type="text" name="device" placeholder="Название товара" required style="flex:2; padding:8px;">
+                    <input type="number" name="price" placeholder="Цена" step="0.01" required style="flex:1; padding:8px;">
+                    <select name="work" style="padding:8px;">
+                        <option value="working">working</option>
+                        <option value="not working">not working</option>
+                    </select>
+                    <button type="submit" class="btn-add">Добавить</button>
                 </form>
                 ` : ''}
                 <table>
-                    <thead><tr><th>Товар</th><th>Статус</th><th>Действие</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th>Товар</th>
+                            <th>Цена</th>
+                            <th>Статус</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         ${inventory.map(i => `
                         <tr>
-                            <td>${i.device}</td>
-                            <td class="${i.work === 'working' ? 'status-working' : 'status-not-working'}">${i.work}</td>
+                            <td><b>${i.device}</b></td>
+                            <td><span class="price-tag">${i.price || 0}</span></td>
+                            <td class="${i.work === 'working' ? 'status-working' : 'status-not-working'}">
+                                ${i.work}
+                            </td>
                             <td>
                                 <form method="POST" action="/toggle-inventory" style="margin:0;">
                                     <input type="hidden" name="id" value="${i.id}">
                                     <input type="hidden" name="current" value="${i.work}">
-                                    <button type="submit">Изменить</button>
+                                    <button type="submit" class="btn">Изменить статус</button>
                                 </form>
                             </td>
                         </tr>`).join('')}
@@ -136,7 +142,7 @@ app.get('/', async (req, res) => {
     } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
-// --- ОБРАБОТЧИКИ ---
+// --- POST HANDLERS ---
 
 app.post('/add-user', async (req, res) => {
     try {
@@ -145,7 +151,7 @@ app.post('/add-user', async (req, res) => {
             password: req.body.password,
             passwordConfirm: req.body.password,
             role: 'worker',
-            emailVisibility: true // Чтобы почта была видна в списке
+            emailVisibility: true
         });
         res.redirect('/');
     } catch (e) { res.send("Ошибка: " + e.message); }
@@ -153,9 +159,13 @@ app.post('/add-user', async (req, res) => {
 
 app.post('/add-inventory', async (req, res) => {
     try {
-        await pb.collection('inventory').create({ device: req.body.device, work: req.body.work });
+        await pb.collection('inventory').create({ 
+            device: req.body.device, 
+            price: req.body.price, // Добавляем цену
+            work: req.body.work 
+        });
         res.redirect('/');
-    } catch (e) { res.send("Ошибка"); }
+    } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
 app.post('/toggle-inventory', async (req, res) => {
