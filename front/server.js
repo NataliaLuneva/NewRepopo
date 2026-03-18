@@ -8,7 +8,7 @@ const PORT = 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// 1. ВЕБХУК (ПИШЕТ В КОЛОНКУ 'sold')
+// 1. ВЕБХУК (ОБРАБОТКА ОПЛАТЫ)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
@@ -17,7 +17,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
-        console.log(`❌ Webhook Signature Error: ${err.message}`);
+        console.log(`❌ Ошибка подписи: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
@@ -26,11 +26,11 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         const itemId = session.metadata.itemId;
         
         try {
-            // ОБНОВЛЯЕМ ИМЕННО ПОЛЕ 'sold'
-            await pb.collection('inventory').update(itemId, { sold: 'sold' });
-            console.log(`✅ ТОВАР ${itemId} УСПЕШНО ПРОДАН`);
+            // ОБНОВЛЯЕМ КОЛОНКУ status НА ЗНАЧЕНИЕ sold
+            await pb.collection('inventory').update(itemId, { status: 'sold' });
+            console.log(`✅ ТОВАР ${itemId} ТЕПЕРЬ В СТАТУСЕ SOLD`);
         } catch (e) {
-            console.error("❌ Ошибка PocketBase в вебхуке:", e.message);
+            console.error("❌ Ошибка обновления базы:", e.message);
         }
     }
     res.json({ received: true });
@@ -48,15 +48,15 @@ app.get('/', async (req, res) => {
     const isUser = me.role === 'user';
 
     try {
-        // Доступные товары (где sold НЕ равен "sold")
+        // Доступные товары (status НЕ равен "sold")
         const availableItems = await pb.collection('inventory').getFullList({ 
-            filter: 'sold != "sold"', 
+            filter: 'status != "sold"', 
             sort: '-created' 
         });
 
-        // Проданные товары (только для админа и воркера)
+        // Проданные товары (status РАВЕН "sold")
         const soldItems = (isAdmin || isWorker) ? await pb.collection('inventory').getFullList({ 
-            filter: 'sold = "sold"', 
+            filter: 'status = "sold"', 
             sort: '-updated' 
         }) : [];
 
@@ -88,7 +88,7 @@ app.get('/', async (req, res) => {
 
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Управление пользователями</h3>
+                <h3>👥 Пользователи</h3>
                 <form method="POST" action="/add-user" style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px;">
                     <input name="email" placeholder="Email" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
                     <input name="password" type="password" placeholder="Пароль" required style="padding:10px; border-radius:8px; border:1px solid #ddd;">
@@ -97,9 +97,6 @@ app.get('/', async (req, res) => {
                     </select>
                     <button type="submit" class="btn" style="background:#10b981; color:white;">Создать</button>
                 </form>
-                <table style="margin-top:20px;">
-                    ${allUsers.map(u => `<tr><td>${u.email}</td><td><b>${u.role}</b></td><td><a href="/del-user/${u.id}" style="color:#ef4444;">Удалить</a></td></tr>`).join('')}
-                </table>
             </div>
             ` : ''}
 
@@ -124,7 +121,7 @@ app.get('/', async (req, res) => {
                                 <form method="POST" action="/purchase"><input type="hidden" name="id" value="${i.id}"><button class="btn btn-buy">КУПИТЬ</button></form>
                             ` : `
                                 <div style="display:flex; gap:10px;">
-                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Тех. состояние</button></form>
+                                    <form method="POST" action="/toggle-status"><input type="hidden" name="id" value="${i.id}"><input type="hidden" name="current" value="${i.work}"><button class="btn" style="background:#e2e8f0;">Состояние</button></form>
                                     ${isAdmin ? `<a href="/del-item/${i.id}" class="btn" style="background:#fee2e2; color:#ef4444;">Удалить</a>` : ''}
                                 </div>
                             `}
@@ -135,19 +132,22 @@ app.get('/', async (req, res) => {
 
             ${(isAdmin || isWorker) ? `
             <div class="card" style="border-left: 6px solid #10b981;">
-                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ (SOLD)</h3>
+                <h3 style="color:#059669;">✅ ИСТОРИЯ ПРОДАЖ (STATUS: SOLD)</h3>
                 <table>
-                    <thead><tr><th>Товар</th><th>Цена</th><th>Дата продажи</th></tr></thead>
+                    <thead><tr><th>Товар</th><th>Цена</th><th>Дата</th></tr></thead>
                     ${soldItems.map(s => `<tr><td><del>${s.device}</del></td><td>${s.price} $</td><td style="color:gray;">${new Date(s.updated).toLocaleString()}</td></tr>`).join('')}
                 </table>
             </div>
             ` : ''}
         </div>`;
         res.send(html);
-    } catch (e) { res.send("Ошибка загрузки данных: " + e.message); }
+    } catch (e) { 
+        console.error(e);
+        res.send("Ошибка загрузки данных. Проверьте названия колонок в PocketBase (status и work)."); 
+    }
 });
 
-// --- РОУТЫ УПРАВЛЕНИЯ ---
+// --- РОУТЫ ---
 app.post('/purchase', async (req, res) => {
     try {
         const item = await pb.collection('inventory').getOne(req.body.id);
@@ -170,8 +170,13 @@ app.post('/toggle-status', async (req, res) => {
 });
 
 app.post('/add-inventory', async (req, res) => {
-    // При создании нового товара поле 'sold' пустое по умолчанию
-    await pb.collection('inventory').create({ device: req.body.device, price: req.body.price, work: 'working', sold: '' });
+    // При создании status пустой, чтобы товар был в "Доступных"
+    await pb.collection('inventory').create({ 
+        device: req.body.device, 
+        price: req.body.price, 
+        work: 'working', 
+        status: '' 
+    });
     res.redirect('/');
 });
 
@@ -194,9 +199,9 @@ app.get('/login', (req, res) => {
     res.send(`
     <style>
         body { margin:0; background: #0f172a; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; }
-        .login-card { background: #1e293b; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 350px; text-align: center; color: white; }
+        .login-card { background: #1e293b; padding: 40px; border-radius: 20px; width: 350px; text-align: center; color: white; }
         input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #334155; color: white; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; }
     </style>
     <div class="login-card">
         <h2>System Login</h2>
@@ -209,10 +214,14 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
-    try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); }
-    catch (e) { res.status(400).send('Ошибка входа: неверные данные'); }
+    try { 
+        await pb.collection('users').authWithPassword(req.body.email, req.body.password); 
+        res.redirect('/'); 
+    } catch (e) { 
+        res.status(400).send('Ошибка входа: проверьте данные'); 
+    }
 });
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`SERVER RUNNING ON PORT ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`FULL SYSTEM ONLINE ON PORT ${PORT}`));
