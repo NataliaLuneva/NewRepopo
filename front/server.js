@@ -181,20 +181,16 @@ app.post('/add-inventory', async (req, res) => {
     try {
         const { device, price } = req.body;
 
-        // Проверяем, что пришло название, иначе база опять выдаст ошибку
-        if (!device) return res.status(400).send("Название товара не может быть пустым");
-
+        // Шлем только те поля, которые реально нужны
         const data = {
             "device": device,
             "price": Number(price) || 0,
-            "work": "working",      // <--- Передаем статус работы (не пустое)
-            "status": "available"   // <--- Передаем статус наличия (не пустое)
+            "work": "working" // Берем значение из твоего списка в PB
         };
 
-        console.log("Отправка в БД:", data); // Увидишь в логах Coolify, что улетает
+        console.log("Отправка в БД (без статуса):", data);
 
         await pb.collection('inventory').create(data);
-        
         res.redirect('/');
     } catch (e) {
         console.error("ОШИБКА ДОБАВЛЕНИЯ:", e.data); // Самый важный лог
