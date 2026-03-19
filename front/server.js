@@ -294,21 +294,39 @@ app.post('/update-profile', upload.single('avatar'), async (req, res) => {
     try {
         if (!pb.authStore.isValid) return res.redirect('/login');
         const formData = new FormData();
-        
+
         if (req.body.password && req.body.password.trim() !== "") {
             if (!req.body.oldPassword) throw new Error("Введите старый пароль");
             formData.append('oldPassword', req.body.oldPassword);
             formData.append('password', req.body.password);
             formData.append('passwordConfirm', req.body.passwordConfirm);
         }
-        
+
         if (req.file) formData.append('avatar', new Blob([req.file.buffer]), req.file.originalname);
-        
+
         await pb.collection('users').update(pb.authStore.model.id, formData);
         await pb.collection('users').authRefresh();
         res.redirect('/');
     } catch (e) {
-        res.status(500).send(`Ошибка: ${e.message}`);
+        // КРАСИВАЯ СТРАНИЦА ОШИБКИ / ИСТЕКШЕЙ СЕССИИ
+        const isAuthError = e.status === 401 || e.message.includes("token");
+        const errorTitle = isAuthError ? "СЕССИЯ ИСТЕКЛА" : "ОШИБКА ОБНОВЛЕНИЯ";
+        const errorMsg = isAuthError 
+            ? "Ваш токен безопасности обновился. Нужно зайти в систему заново." 
+            : (e.data?.data?.oldPassword ? "Неверный текущий пароль!" : e.message);
+
+        res.status(e.status || 500).send(`
+        <body style="background:#0f172a; color:white; font-family:'Segoe UI',sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+            <div style="background:rgba(30,41,59,0.8); backdrop-filter:blur(10px); padding:40px; border-radius:20px; border:1px solid #334155; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.5); max-width:400px;">
+                <div style="font-size:50px; margin-bottom:20px;">${isAuthError ? '🔐' : '⚠️'}</div>
+                <h2 style="color:#f43f5e; margin-bottom:10px; letter-spacing:1px;">${errorTitle}</h2>
+                <p style="color:#94a3b8; line-height:1.6; margin-bottom:30px;">${errorMsg}</p>
+                <a href="/login" style="background:#6366f1; color:white; text-decoration:none; padding:12px 30px; border-radius:10px; font-weight:bold; display:inline-block; transition:0.3s; box-shadow:0 4px 15px rgba(99,102,241,0.4);">
+                    ${isAuthError ? 'ВОЙТИ СНОВА' : 'ВЕРНУТЬСЯ'}
+                </a>
+                ${isAuthError ? '<script>setTimeout(() => { window.location.href = "/login"; }, 5000);</script>' : ''}
+            </div>
+        </body>`);
     }
 });
 
