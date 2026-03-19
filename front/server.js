@@ -200,9 +200,25 @@ app.post('/update-profile', upload.single('avatar'), async (req, res) => {
 // --- РОУТЫ СКЛАДА ---
 app.post('/add-inventory', async (req, res) => {
     try {
-        await pb.collection('inventory').create({ device: req.body.device, price: Number(req.body.price), work: 'working', status: 'available' });
+        const { device, price } = req.body;
+
+        // Шлем только те поля, которые реально нужны
+        const data = {
+            "device": device,
+            "price": Number(price) || 0,
+            "work": "working" // Берем значение из твоего списка в PB
+        };
+
+        console.log("Отправка в БД (без статуса):", data);
+
+        await pb.collection('inventory').create(data);
         res.redirect('/');
-    } catch (e) { res.send(e.message); }
+    } catch (e) {
+        console.error("ОШИБКА:", e.data);
+        // Если база все равно ругается, значит поле 'status' в PB помечено как "Non-empty"
+        // В таком случае зайди в настройки PB и сними галочку "Non-empty" у поля status.
+        res.status(500).send(`Ошибка базы: ${e.message}`);
+    }
 });
 
 app.get('/toggle-status/:id/:current', async (req, res) => {
