@@ -227,8 +227,7 @@ app.post('/add-inventory', async (req, res) => {
         await pb.collection('inventory').create({
             device: req.body.device,
             price: Number(req.body.price) || 0,
-            work: "working",
-            status: "available"
+            work: "working"
         });
         res.redirect('/');
     } catch (e) { res.status(500).send("Ошибка: " + e.message); }
