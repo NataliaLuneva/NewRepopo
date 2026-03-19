@@ -13,12 +13,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const sig = req.headers['stripe-signature'];
     const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
     let event;
-
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-    } catch (err) { 
-        return res.status(400).send(`Webhook Error: ${err.message}`); 
-    }
+    } catch (err) { return res.status(400).send(`Webhook Error: ${err.message}`); }
 
     if (event.type === 'checkout.session.completed') {
         const itemIds = event.data.object.metadata.itemIds.split(',');
@@ -26,7 +23,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
             for (const id of itemIds) {
                 await pb.collection('inventory').update(id, { status: 'sold' });
             }
-        } catch (e) { console.error("PB Update Error:", e.message); }
+        } catch (e) { console.error("Ошибка обновления PB:", e.message); }
     }
     res.json({ received: true });
 });
@@ -34,7 +31,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- 2. ГЛАВНАЯ СТРАНИЦА ---
+// --- 2. ГЛАВНАЯ СТРАНИЦА (ВСЕ ФИЧИ ТУТ) ---
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
     const me = pb.authStore.model;
@@ -53,26 +50,32 @@ app.get('/', async (req, res) => {
             .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
             table { width: 100%; border-collapse: collapse; }
             th, td { padding: 12px; border-bottom: 1px solid #334155; text-align: left; }
-            .btn { padding: 8px 15px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; text-decoration: none; color: white; display: inline-block; }
+            .btn { padding: 8px 15px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; color: white; transition: 0.2s; }
+            .btn-primary { background: #6366f1; }
+            .btn-danger { background: #f43f5e; }
             .btn-buy { background: #10b981; width: 100%; margin-top: 20px; padding: 15px; font-size: 1.1em; }
             .price { color: #10b981; font-weight: bold; }
-            input, select { padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; }
+            input, select { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; }
         </style>
 
         <div style="max-width: 1000px; margin: 0 auto;">
             <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-                <div><strong>${me.email}</strong> <span style="color:#6366f1;">(${me.role})</span></div>
-                <a href="/logout" style="color:#f43f5e; font-weight:bold; text-decoration:none;">Выйти</a>
+                <div><strong>${me.email}</strong> <span style="color:#6366f1;">● ${me.role}</span></div>
+                <a href="/logout" class="btn btn-danger">ВЫЙТИ</a>
             </div>
 
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Пользователи</h3>
+                <h3>👥 Управление пользователями</h3>
                 <form method="POST" action="/add-user" style="display:flex; gap:10px; margin-bottom:15px;">
                     <input name="email" type="email" placeholder="Email" required>
                     <input name="password" type="password" placeholder="Пароль" required>
-                    <select name="role"><option value="user">User</option><option value="worker">Worker</option><option value="admin">Admin</option></select>
-                    <button class="btn" style="background:#6366f1;">Создать</button>
+                    <select name="role">
+                        <option value="user">User</option>
+                        <option value="worker">Worker</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <button class="btn btn-primary">Создать</button>
                 </form>
                 <table>
                     ${allUsers.map(u => `<tr><td>${u.email}</td><td>${u.role}</td><td><a href="/del-user/${u.id}" style="color:#f43f5e;">Удалить</a></td></tr>`).join('')}
@@ -81,12 +84,12 @@ app.get('/', async (req, res) => {
             ` : ''}
 
             <div class="card">
-                <h3>📦 Доступные товары</h3>
+                <h3>📦 Склад товаров</h3>
                 ${isAdmin ? `
                 <form method="POST" action="/add-inventory" style="display:flex; gap:10px; margin-bottom:20px;">
                     <input name="device" placeholder="Название" required style="flex:2;">
                     <input name="price" type="number" placeholder="Цена" required style="flex:1;">
-                    <button class="btn" style="background:#6366f1;">Добавить</button>
+                    <button class="btn btn-primary">+ Добавить</button>
                 </form>` : ''}
 
                 <form method="POST" action="/purchase">
@@ -95,7 +98,7 @@ app.get('/', async (req, res) => {
                             <tr>
                                 ${isUser ? '<th>🛒</th>' : ''}
                                 <th>Название</th><th>Цена</th>
-                                ${!isUser ? '<th>Работа</th><th>Действие</th>' : ''}
+                                ${!isUser ? '<th>Статус</th><th>Действие</th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -105,21 +108,34 @@ app.get('/', async (req, res) => {
                                 <td><b>${i.device}</b></td>
                                 <td class="price">$${i.price}</td>
                                 ${!isUser ? `
-                                    <td>${i.work}</td>
-                                    <td><a href="/toggle-status/${i.id}/${i.work}" class="btn" style="background:#475569; font-size:0.8em;">Статус</a></td>
+                                    <td><span style="background:#334155; padding:4px 8px; border-radius:4px;">${i.work}</span></td>
+                                    <td>
+                                        <div style="display:flex; gap:10px;">
+                                            <a href="/toggle-status/${i.id}/${i.work}" class="btn" style="background:#475569;">Статус</a>
+                                            ${isAdmin ? `<a href="/del-item/${i.id}" style="color:#f43f5e; text-decoration:none;">🗑️</a>` : ''}
+                                        </div>
+                                    </td>
                                 ` : ''}
                             </tr>`).join('')}
                         </tbody>
                     </table>
-                    ${isUser && availableItems.length > 0 ? `<button type="submit" class="btn btn-buy">КУПИТЬ ВЫБРАННОЕ</button>` : ''}
+                    ${isUser && availableItems.length > 0 ? `<button type="submit" class="btn btn-buy">ОПЛАТИТЬ ВЫБРАННОЕ</button>` : ''}
                 </form>
             </div>
+
+            ${(isAdmin || isWorker) ? `
+            <div class="card">
+                <h3 style="color:#10b981;">✅ ИСТОРИЯ ПРОДАЖ</h3>
+                <table>
+                    ${soldItems.map(s => `<tr><td><del>${s.device}</del></td><td>$${s.price}</td><td style="color:#64748b; font-size:0.8em;">${new Date(s.updated).toLocaleString()}</td></tr>`).join('')}
+                </table>
+            </div>` : ''}
         </div>`;
         res.send(html);
     } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
-// --- 3. ОБРАБОТЧИК ОПЛАТЫ (ЭТОТ РОУТ ЗАМЕНЯЕТ /checkout) ---
+// --- 3. ЛОГИКА ОПЛАТЫ (ЭТОТ РОУТ ЗАМЕНЯЕТ /checkout) ---
 app.post('/purchase', async (req, res) => {
     try {
         let ids = req.body.ids;
@@ -147,7 +163,7 @@ app.post('/purchase', async (req, res) => {
     } catch (e) { res.status(500).send("Ошибка Stripe: " + e.message); }
 });
 
-// --- ОСТАЛЬНЫЕ РОУТЫ ---
+// --- 4. ФУНКЦИИ АДМИНА И МАСТЕРА ---
 app.post('/add-inventory', async (req, res) => {
     await pb.collection('inventory').create({ device: req.body.device, price: req.body.price, work: 'working', status: 'available' });
     res.redirect('/');
@@ -159,6 +175,11 @@ app.get('/toggle-status/:id/:current', async (req, res) => {
     res.redirect('/');
 });
 
+app.get('/del-item/:id', async (req, res) => {
+    await pb.collection('inventory').delete(req.params.id);
+    res.redirect('/');
+});
+
 app.post('/add-user', async (req, res) => {
     try {
         await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: req.body.role, emailVisibility: true });
@@ -166,30 +187,25 @@ app.post('/add-user', async (req, res) => {
     } catch (e) { res.send(e.message); }
 });
 
+app.get('/del-user/:id', async (req, res) => {
+    await pb.collection('users').delete(req.params.id);
+    res.redirect('/');
+});
+
+// --- 5. ЛОГИН / РЕГИСТРАЦИЯ ---
 app.get('/login', (req, res) => {
-    res.send(`<div style="background:#0f172a; height:100vh; display:flex; justify-content:center; align-items:center; color:white; font-family:sans-serif;">
-    <form method="POST" action="/login" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
-        <h2>Вход</h2>
-        <input name="email" placeholder="Email" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none;">
-        <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none;">
-        <button style="width:100%; padding:10px; background:#6366f1; color:white; border:none; border-radius:5px; cursor:pointer;">Войти</button>
-        <br><br><a href="/register" style="color:#94a3b8; text-decoration:none; font-size:0.8em;">Нет аккаунта? Регистрация</a>
-    </form></div>`);
+    res.send(`<style>body{margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;color:white;}.card{background:#1e293b;padding:40px;border-radius:20px;width:300px;text-align:center;}input{width:100%;padding:12px;margin:10px 0;border-radius:8px;border:none;background:#334155;color:white;box-sizing:border-box;}button{width:100%;padding:12px;background:#6366f1;border:none;color:white;border-radius:8px;font-weight:bold;cursor:pointer;}a{color:#94a3b8;text-decoration:none;font-size:0.8em;display:block;margin-top:15px;}</style>
+    <div class="card"><h2>ВХОД</h2><form method="POST" action="/login"><input name="email" placeholder="Email" required><input name="password" type="password" placeholder="Пароль" required><button>ВОЙТИ</button></form><a href="/register">Нет аккаунта? Регистрация</a></div>`);
 });
 
 app.post('/login', async (req, res) => {
     try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); }
-    catch (e) { res.send('Ошибка входа'); }
+    catch (e) { res.send('Ошибка входа. Проверьте данные.'); }
 });
 
 app.get('/register', (req, res) => {
-    res.send(`<div style="background:#0f172a; height:100vh; display:flex; justify-content:center; align-items:center; color:white; font-family:sans-serif;">
-    <form method="POST" action="/register" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
-        <h2>Регистрация</h2>
-        <input name="email" type="email" placeholder="Email" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none;">
-        <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none;">
-        <button style="width:100%; padding:10px; background:#10b981; color:white; border:none; border-radius:5px; cursor:pointer;">Создать</button>
-    </form></div>`);
+    res.send(`<style>body{margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;color:white;}.card{background:#1e293b;padding:40px;border-radius:20px;width:300px;text-align:center;}input{width:100%;padding:12px;margin:10px 0;border-radius:8px;border:none;background:#334155;color:white;box-sizing:border-box;}button{width:100%;padding:12px;background:#10b981;border:none;color:white;border-radius:8px;font-weight:bold;cursor:pointer;}</style>
+    <div class="card"><h2>РЕГИСТРАЦИЯ</h2><form method="POST" action="/register"><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Пароль" required><button>СОЗДАТЬ</button></form><br><a href="/login" style="color:#94a3b8; text-decoration:none;">Уже есть аккаунт? Войти</a></div>`);
 });
 
 app.post('/register', async (req, res) => {
@@ -202,4 +218,4 @@ app.post('/register', async (req, res) => {
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 ONLINE`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 SYSTEM ONLINE`));
