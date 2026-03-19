@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 const PB_URL = 'http://pocketbase-enkyv7ef4telz43i7fxgf1wv.176.112.158.3.sslip.io/';
 const pb = new PocketBase(PB_URL);
 
-// --- ВЕБХУК ---
+// --- 1. ВЕБХУК ---
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = 'whsec_xRRpYTPLJtV67ZZnPwrkw1rnbY2xBDjH'; 
@@ -31,7 +31,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- ГЛАВНАЯ СТРАНИЦА ---
+// --- 2. ГЛАВНАЯ СТРАНИЦА ---
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
     const me = pb.authStore.model;
@@ -56,25 +56,36 @@ app.get('/', async (req, res) => {
             .btn-danger { background: #f43f5e; }
             .price { color: #10b981; font-weight: bold; }
             input, select { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; }
-            
-            /* Стили для поиска */
             #searchInput { width: 100%; margin-bottom: 20px; font-size: 1.1em; border: 2px solid #6366f1; }
-            
-            /* Модальное окно */
             #editModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 100; }
             .modal-content { background: #1e293b; padding: 30px; border-radius: 15px; width: 400px; }
+            .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; background: #475569; }
         </style>
 
         <div class="container">
             <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-                <div><strong>${me.email}</strong> <span style="color:#6366f1;">● ${me.role}</span></div>
+                <div><strong>${me.email}</strong> <span class="badge" style="background:#6366f1;">${me.role}</span></div>
                 <a href="/logout" class="btn btn-danger">ВЫЙТИ</a>
             </div>
 
+            ${isAdmin ? `
+            <div class="card">
+                <h3>👥 Управление пользователями</h3>
+                <form method="POST" action="/add-user" style="display:flex; gap:10px; margin-bottom:15px;">
+                    <input name="email" type="email" placeholder="Email" required>
+                    <input name="password" type="password" placeholder="Пароль" required>
+                    <select name="role"><option value="user">User</option><option value="worker">Worker</option><option value="admin">Admin</option></select>
+                    <button class="btn btn-primary">Создать</button>
+                </form>
+                <table>
+                    ${allUsers.map(u => `<tr><td>${u.email}</td><td><span class="badge">${u.role}</span></td><td><a href="/del-user/${u.id}" style="color:#f43f5e;">Удалить</a></td></tr>`).join('')}
+                </table>
+            </div>
+            ` : ''}
+
             <div class="card">
                 <h3>📦 Склад товаров</h3>
-                
-                <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="🔍 Поиск по названию устройства...">
+                <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="🔍 Поиск по названию...">
 
                 ${isAdmin ? `
                 <form method="POST" action="/add-inventory" style="display:flex; gap:10px; margin-bottom:20px;">
@@ -99,13 +110,13 @@ app.get('/', async (req, res) => {
                                 <td class="device-name"><b>${i.device}</b></td>
                                 <td class="price">$${i.price}</td>
                                 ${!isUser ? `
-                                    <td><span style="background:#334155; padding:4px 8px; border-radius:4px;">${i.work}</span></td>
+                                    <td><span class="badge">${i.work}</span></td>
                                     <td>
                                         <div style="display:flex; gap:10px; align-items:center;">
                                             <a href="/toggle-status/${i.id}/${i.work}" class="btn" style="background:#475569; font-size:0.8em;">Статус</a>
                                             ${isAdmin ? `
-                                                <button type="button" onclick="openEditModal('${i.id}', '${i.device}', '${i.price}', '${i.work}')" style="background:none; border:none; cursor:pointer; font-size:1.2em;">✏️</button>
-                                                <a href="/del-item/${i.id}" style="color:#f43f5e; text-decoration:none;">🗑️</a>
+                                                <button type="button" onclick="openEditModal('${i.id}', '${i.device}', '${i.price}', '${i.work}')" style="background:none; border:none; cursor:pointer;">✏️</button>
+                                                <a href="/del-item/${i.id}" style="color:#f43f5e;">🗑️</a>
                                             ` : ''}
                                         </div>
                                     </td>
@@ -113,7 +124,7 @@ app.get('/', async (req, res) => {
                             </tr>`).join('')}
                         </tbody>
                     </table>
-                    ${isUser && availableItems.length > 0 ? `<button type="submit" class="btn" style="background:#10b981; width:100%; margin-top:20px; padding:15px;">ОПЛАТИТЬ ВЫБРАННОЕ</button>` : ''}
+                    ${isUser && availableItems.length > 0 ? `<button type="submit" class="btn" style="background:#10b981; width:100%; margin-top:20px; padding:15px;">ОПЛАТИТЬ</button>` : ''}
                 </form>
             </div>
         </div>
@@ -122,16 +133,13 @@ app.get('/', async (req, res) => {
             <div class="modal-content">
                 <h3>Редактировать товар</h3>
                 <form id="editForm" method="POST">
-                    <label>Название:</label><br>
-                    <input name="device" id="editDevice" style="width:100%; margin:10px 0;" required><br>
-                    <label>Цена ($):</label><br>
-                    <input name="price" type="number" id="editPrice" style="width:100%; margin:10px 0;" required><br>
-                    <label>Работа:</label><br>
+                    <input name="device" id="editDevice" style="width:100%; margin:10px 0;" required>
+                    <input name="price" type="number" id="editPrice" style="width:100%; margin:10px 0;" required>
                     <select name="work" id="editWork" style="width:100%; margin:10px 0;">
                         <option value="working">Working</option>
                         <option value="not working">Not working</option>
-                    </select><br><br>
-                    <div style="display:flex; gap:10px;">
+                    </select>
+                    <div style="display:flex; gap:10px; margin-top:10px;">
                         <button type="submit" class="btn btn-primary" style="flex:1;">Сохранить</button>
                         <button type="button" onclick="closeModal()" class="btn btn-danger" style="flex:1;">Отмена</button>
                     </div>
@@ -140,17 +148,13 @@ app.get('/', async (req, res) => {
         </div>
 
         <script>
-            // Функция поиска
             function filterTable() {
                 let input = document.getElementById("searchInput").value.toUpperCase();
-                let rows = document.querySelectorAll(".item-row");
-                rows.forEach(row => {
+                document.querySelectorAll(".item-row").forEach(row => {
                     let name = row.querySelector(".device-name").innerText;
                     row.style.display = name.toUpperCase().includes(input) ? "" : "none";
                 });
             }
-
-            // Функции модалки
             function openEditModal(id, device, price, work) {
                 document.getElementById('editForm').action = '/edit-inventory/' + id;
                 document.getElementById('editDevice').value = device;
@@ -158,41 +162,45 @@ app.get('/', async (req, res) => {
                 document.getElementById('editWork').value = work;
                 document.getElementById('editModal').style.display = 'flex';
             }
-            function closeModal() {
-                document.getElementById('editModal').style.display = 'none';
-            }
+            function closeModal() { document.getElementById('editModal').style.display = 'none'; }
         </script>
         `;
         res.send(html);
     } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
-// --- РОУТ РЕДАКТИРОВАНИЯ ---
+// --- 3. РОУТЫ УПРАВЛЕНИЯ ---
 app.post('/edit-inventory/:id', async (req, res) => {
-    try {
-        await pb.collection('inventory').update(req.params.id, {
-            device: req.body.device,
-            price: req.body.price,
-            work: req.body.work
-        });
-        res.redirect('/');
-    } catch (e) { res.send("Ошибка при обновлении: " + e.message); }
+    await pb.collection('inventory').update(req.params.id, { device: req.body.device, price: req.body.price, work: req.body.work });
+    res.redirect('/');
 });
 
-// --- ОСТАЛЬНЫЕ РОУТЫ (БЕЗ ИЗМЕНЕНИЙ) ---
+app.post('/add-user', async (req, res) => {
+    try {
+        await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: req.body.role, emailVisibility: true });
+        res.redirect('/');
+    } catch (e) { res.send(e.message); }
+});
+
+app.get('/del-user/:id', async (req, res) => {
+    await pb.collection('users').delete(req.params.id);
+    res.redirect('/');
+});
+
+// --- ОСТАЛЬНЫЕ РОУТЫ ---
 app.post('/purchase', async (req, res) => {
     try {
         let ids = req.body.ids;
         if (!ids) return res.send("Выберите товар!");
         if (!Array.isArray(ids)) ids = [ids];
-        const itemsToBuy = [];
+        const items = [];
         for (const id of ids) {
             const item = await pb.collection('inventory').getOne(id);
-            if (item.status !== 'sold') itemsToBuy.push(item);
+            if (item.status !== 'sold') items.push(item);
         }
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            line_items: itemsToBuy.map(i => ({
+            line_items: items.map(i => ({
                 price_data: { currency: 'usd', product_data: { name: i.device }, unit_amount: Math.round(i.price * 100) },
                 quantity: 1,
             })),
@@ -202,7 +210,7 @@ app.post('/purchase', async (req, res) => {
             metadata: { itemIds: ids.join(',') }
         });
         res.redirect(303, session.url);
-    } catch (e) { res.status(500).send(e.message); }
+    } catch (e) { res.send(e.message); }
 });
 
 app.post('/add-inventory', async (req, res) => {
@@ -221,20 +229,39 @@ app.get('/del-item/:id', async (req, res) => {
     res.redirect('/');
 });
 
-app.post('/login', async (req, res) => {
-    try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); } catch (e) { res.send('Ошибка входа'); }
-});
-
 app.get('/login', (req, res) => {
     res.send(`<body style="background:#0f172a; color:white; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
     <form method="POST" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
         <h2 style="text-align:center;">ВХОД</h2>
         <input name="email" placeholder="Email" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none; box-sizing:border-box;">
         <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none; box-sizing:border-box;">
-        <button style="width:100%; padding:10px; background:#6366f1; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">ВОЙТИ</button>
+        <button style="width:100%; padding:10px; background:#6366f1; color:white; border:none; border-radius:5px; cursor:pointer;">ВОЙТИ</button>
+        <br><br><a href="/register" style="color:#94a3b8; text-decoration:none; font-size:0.8em; display:block; text-align:center;">Регистрация</a>
     </form></body>`);
+});
+
+app.post('/login', async (req, res) => {
+    try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); } catch (e) { res.send('Ошибка входа'); }
+});
+
+app.get('/register', (req, res) => {
+    res.send(`<body style="background:#0f172a; color:white; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+    <form method="POST" action="/register" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
+        <h2 style="text-align:center;">РЕГИСТРАЦИЯ</h2>
+        <input name="email" type="email" placeholder="Email" required style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none; box-sizing:border-box;">
+        <input name="password" type="password" placeholder="Пароль" required style="width:100%; padding:10px; margin:10px 0; border-radius:5px; border:none; box-sizing:border-box;">
+        <button style="width:100%; padding:10px; background:#10b981; color:white; border:none; border-radius:5px; cursor:pointer;">СОЗДАТЬ</button>
+    </form></body>`);
+});
+
+app.post('/register', async (req, res) => {
+    try {
+        await pb.collection('users').create({ email: req.body.email, password: req.body.password, passwordConfirm: req.body.password, role: "user", emailVisibility: true });
+        await pb.collection('users').authWithPassword(req.body.email, req.body.password);
+        res.redirect('/');
+    } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
 app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login'); });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 SYSTEM UP`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 SYSTEM READY`));
