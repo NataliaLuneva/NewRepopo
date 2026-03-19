@@ -219,20 +219,49 @@ app.get('/del-item/:id', async (req, res) => {
 // --- ЛОГИКА ЮЗЕРОВ И ПРОФИЛЯ ---
 app.post('/update-profile', upload.single('avatar'), async (req, res) => {
     try {
+        // Проверяем, залогинен ли ты вообще
+        if (!pb.authStore.isValid) return res.redirect('/login');
+
+        const userId = pb.authStore.model.id;
         const formData = new FormData();
+        let hasData = false;
+
+        // Если меняем пароль
         if (req.body.password && req.body.password.trim() !== "") {
+            if (!req.body.oldPassword) {
+                return res.status(400).send("Ошибка: Введите текущий пароль для подтверждения!");
+            }
             formData.append('oldPassword', req.body.oldPassword);
             formData.append('password', req.body.password);
             formData.append('passwordConfirm', req.body.passwordConfirm);
+            hasData = true;
         }
+
+        // Если меняем только аватарку
         if (req.file) {
-            formData.append('avatar', new Blob([req.file.buffer]), req.file.originalname);
+            const blob = new Blob([req.file.buffer]);
+            formData.append('avatar', blob, req.file.originalname);
+            hasData = true;
         }
-        await pb.collection('users').update(pb.authStore.model.id, formData);
+
+        if (!hasData) return res.redirect('/');
+
+        // ВАЖНО: Мы используем текущую сессию (pb.authStore.token подставится автоматически)
+        await pb.collection('users').update(userId, formData);
+        
+        // После смены пароля токен может стать недействительным, обновляем его
         await pb.collection('users').authRefresh();
-        res.redirect('/');
+        
+        res.redirect('/?success=1');
     } catch (e) {
-        let msg = e.data?.data?.oldPassword ? "Неверный старый пароль!" : e.message;
+        console.error("ОШИБКА ПРИ СМЕНЕ ПАРОЛЯ:", e.data);
+        // Если база говорит "Invalid token", значит нужно перелогиниться
+        if (e.status === 401) return res.send("Сессия истекла. Перелогиньтесь.");
+        
+        let msg = e.message;
+        if (e.data?.data?.oldPassword) msg = "Неверный ТЕКУЩИЙ пароль!";
+        if (e.data?.data?.password) msg = "Новый пароль не подходит (минимум 8 символов)!";
+        
         res.status(500).send("Ошибка: " + msg);
     }
 });
