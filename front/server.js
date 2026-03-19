@@ -42,13 +42,13 @@ app.get('/', async (req, res) => {
         : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
     try {
-        // 1. Получаем доступные товары (видят все)
+        // 1. Получаем доступные товары
         const availableItems = await pb.collection('inventory').getFullList({ 
             filter: 'status != "sold"', 
             sort: '-created' 
         });
 
-        // 2. Получаем проданные товары (только для Админа/Воркера)
+        // 2. Получаем проданные товары (только для персонала)
         const soldItems = isWorker 
             ? await pb.collection('inventory').getFullList({ filter: 'status = "sold"', sort: '-updated' }) 
             : [];
@@ -70,8 +70,8 @@ app.get('/', async (req, res) => {
             .btn-success { background: #10b981; }
             .btn-warning { background: #f59e0b; }
             .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; background: #475569; }
-            input, select { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; margin-bottom: 10px; }
-            #searchInput { width: 100%; font-size: 1.1em; border: 2px solid #6366f1; box-sizing: border-box; margin-bottom: 20px; }
+            input, select { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; margin-bottom: 10px; width: 100%; box-sizing: border-box; }
+            #searchInput { font-size: 1.1em; border: 2px solid #6366f1; margin-bottom: 20px; }
             .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 100; }
             .modal-content { background: #1e293b; padding: 30px; border-radius: 15px; width: 380px; }
             .sold-row { opacity: 0.6; background: #1a1a2e; }
@@ -157,7 +157,47 @@ app.get('/', async (req, res) => {
             </div>` : ''}
         </div>
 
-        <div id="profileModal" class="modal">...</div> <div id="editItemModal" class="modal">...</div> <script>
+        <div id="profileModal" class="modal">
+            <div class="modal-content">
+                <h3>Настройки профиля</h3>
+                <form action="/update-profile" method="POST" enctype="multipart/form-data">
+                    <label>🖼️ Аватарка:</label>
+                    <input type="file" name="avatar" accept="image/*">
+                    <label>🔑 Текущий пароль:</label>
+                    <input type="password" name="oldPassword" placeholder="Для смены пароля">
+                    <label>🆕 Новый пароль:</label>
+                    <input type="password" name="password">
+                    <input type="password" name="passwordConfirm" placeholder="Повтор">
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button type="submit" class="btn btn-success" style="flex:1;">Сохранить</button>
+                        <button type="button" onclick="closeModal('profileModal')" class="btn btn-danger" style="flex:1;">Отмена</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="editItemModal" class="modal">
+            <div class="modal-content">
+                <h3>Редактировать товар</h3>
+                <form id="editItemForm" method="POST">
+                    <label>Название:</label>
+                    <input type="text" name="device" id="editDevice" required>
+                    <label>Цена ($):</label>
+                    <input type="number" name="price" id="editPrice" step="0.01" required>
+                    <label>Состояние:</label>
+                    <select name="work" id="editWork">
+                        <option value="working">working</option>
+                        <option value="not working">not working</option>
+                    </select>
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button type="submit" class="btn btn-success" style="flex:1;">Сохранить</button>
+                        <button type="button" onclick="closeModal('editItemModal')" class="btn btn-danger" style="flex:1;">Отмена</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
             function openModal(id) { document.getElementById(id).style.display = 'flex'; }
             function closeModal(id) { document.getElementById(id).style.display = 'none'; }
             function openEditModal(id, name, price, work) {
@@ -180,14 +220,15 @@ app.get('/', async (req, res) => {
     } catch (e) { res.send("Ошибка: " + e.message); }
 });
 
-// --- ЛОГИКА ТОВАРОВ ---
+// --- ОСТАЛЬНЫЕ РОУТЫ ---
 app.post('/add-inventory', async (req, res) => {
     try {
         if (!pb.authStore.isValid) return res.redirect('/login');
         await pb.collection('inventory').create({
             device: req.body.device,
             price: Number(req.body.price) || 0,
-            work: "working"
+            work: "working",
+            status: "available"
         });
         res.redirect('/');
     } catch (e) { res.status(500).send("Ошибка: " + e.message); }
@@ -215,7 +256,6 @@ app.get('/del-item/:id', async (req, res) => {
     res.redirect('/');
 });
 
-// --- ЛОГИКА ЮЗЕРОВ И ПРОФИЛЯ ---
 app.post('/update-profile', upload.single('avatar'), async (req, res) => {
     try {
         if (!pb.authStore.isValid) return res.redirect('/login');
@@ -234,25 +274,7 @@ app.post('/update-profile', upload.single('avatar'), async (req, res) => {
         await pb.collection('users').authRefresh();
         res.redirect('/');
     } catch (e) {
-        // КРАСИВАЯ СТРАНИЦА ОШИБКИ / ИСТЕКШЕЙ СЕССИИ
-        const isAuthError = e.status === 401 || e.message.includes("token");
-        const errorTitle = isAuthError ? "СЕССИЯ ИСТЕКЛА" : "ОШИБКА ОБНОВЛЕНИЯ";
-        const errorMsg = isAuthError 
-            ? "Ваш токен безопасности обновился. Нужно зайти в систему заново." 
-            : (e.data?.data?.oldPassword ? "Неверный текущий пароль!" : e.message);
-
-        res.status(e.status || 500).send(`
-        <body style="background:#0f172a; color:white; font-family:'Segoe UI',sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
-            <div style="background:rgba(30,41,59,0.8); backdrop-filter:blur(10px); padding:40px; border-radius:20px; border:1px solid #334155; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.5); max-width:400px;">
-                <div style="font-size:50px; margin-bottom:20px;">${isAuthError ? '🔐' : '⚠️'}</div>
-                <h2 style="color:#f43f5e; margin-bottom:10px; letter-spacing:1px;">${errorTitle}</h2>
-                <p style="color:#94a3b8; line-height:1.6; margin-bottom:30px;">${errorMsg}</p>
-                <a href="/login" style="background:#6366f1; color:white; text-decoration:none; padding:12px 30px; border-radius:10px; font-weight:bold; display:inline-block; transition:0.3s; box-shadow:0 4px 15px rgba(99,102,241,0.4);">
-                    ${isAuthError ? 'ВОЙТИ СНОВА' : 'ВЕРНУТЬСЯ'}
-                </a>
-                ${isAuthError ? '<script>setTimeout(() => { window.location.href = "/login"; }, 5000);</script>' : ''}
-            </div>
-        </body>`);
+        res.status(500).send(`Ошибка: ${e.message}`);
     }
 });
 
@@ -268,7 +290,6 @@ app.get('/del-user/:id', async (req, res) => {
     res.redirect('/');
 });
 
-// --- АВТОРИЗАЦИЯ И СТРАЙП ---
 app.get('/login', (req, res) => {
     res.send(`<body style="background:#0f172a; color:white; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
     <form method="POST" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
@@ -289,46 +310,30 @@ app.post('/purchase', async (req, res) => {
     try {
         let ids = req.body.ids;
         if (!ids) return res.status(400).send("Ничего не выбрано");
-        
-        // Превращаем в массив, если выбран один товар
         const idArray = Array.isArray(ids) ? ids : [ids];
-
         const lineItems = [];
         for (const id of idArray) {
-            try {
-                const item = await pb.collection('inventory').getOne(id);
-                lineItems.push({
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { 
-                            name: item.device,
-                            description: `ID: ${item.id}`
-                        },
-                        unit_amount: Math.round(parseFloat(item.price) * 100),
-                    },
-                    quantity: 1,
-                });
-            } catch (err) { console.log(`Товар ${id} не найден`); }
+            const item = await pb.collection('inventory').getOne(id);
+            lineItems.push({
+                price_data: {
+                    currency: 'usd',
+                    product_data: { name: item.device },
+                    unit_amount: Math.round(parseFloat(item.price) * 100),
+                },
+                quantity: 1,
+            });
         }
-
-        if (lineItems.length === 0) throw new Error("Нет доступных товаров");
-
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const host = req.get('host');
-        const fullBaseUrl = `${protocol}://${host}`;
-
-        // ВАЖНО: Передаем IDs в success_url через запятую
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
-            success_url: `${fullBaseUrl}/?purchase=success&ids=${idArray.join(',')}`,
-            cancel_url: `${fullBaseUrl}/?purchase=cancel`,
+            success_url: `${protocol}://${host}/?purchase=success&ids=${idArray.join(',')}`,
+            cancel_url: `${protocol}://${host}/?purchase=cancel`,
         });
-
         res.redirect(303, session.url);
-    } catch (e) {
-        res.status(500).send(`Ошибка Stripe: ${e.message}`);
-    }
+    } catch (e) { res.status(500).send(e.message); }
 });
+
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 СИСТЕМА ГОТОВА`));
