@@ -325,13 +325,49 @@ app.get('/del-user/:id', async (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-    res.send(`<body style="background:#0f172a; color:white; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
-    <form method="POST" style="background:#1e293b; padding:40px; border-radius:15px; width:300px;">
-        <h2 style="text-align:center;">ВХОД</h2>
-        <input name="email" placeholder="Email" style="width:100%; padding:10px; margin-bottom:10px; border-radius:5px; border:none; box-sizing:border-box;">
-        <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin-bottom:10px; border-radius:5px; border:none; box-sizing:border-box;">
-        <button style="width:100%; padding:10px; background:#6366f1; color:white; border:none; border-radius:5px; cursor:pointer;">ВОЙТИ</button>
-    </form></body>`);
+    res.send(`
+    <body style="background:#0f172a; color:white; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
+        <div style="background:#1e293b; padding:40px; border-radius:15px; width:320px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <div id="loginForm">
+                <h2 style="text-align:center; margin-top:0;">ВХОД</h2>
+                <form method="POST" action="/login">
+                    <input name="email" placeholder="Email" required style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:white; box-sizing:border-box;">
+                    <input name="password" type="password" placeholder="Пароль" required style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:white; box-sizing:border-box;">
+                    <button style="width:100%; padding:12px; background:#6366f1; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ВОЙТИ</button>
+                </form>
+                <p style="text-align:center; margin-top:20px; font-size:0.9em; color:#94a3b8;">Нет аккаунта? <a href="#" onclick="toggleForms()" style="color:#6366f1; text-decoration:none;">Создать</a></p>
+            </div>
+
+            <div id="registerForm" style="display:none;">
+                <h2 style="text-align:center; margin-top:0;">РЕГИСТРАЦИЯ</h2>
+                <form method="POST" action="/add-user">
+                    <input name="email" placeholder="Email" required style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:white; box-sizing:border-box;">
+                    <input name="password" type="password" placeholder="Пароль" required style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:white; box-sizing:border-box;">
+                    <input type="hidden" name="role" value="user">
+                    <button style="width:100%; padding:12px; background:#10b981; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАРЕГИСТРИРОВАТЬСЯ</button>
+                </form>
+                <p style="text-align:center; margin-top:20px; font-size:0.9em; color:#94a3b8;">Уже есть аккаунт? <a href="#" onclick="toggleForms()" style="color:#6366f1; text-decoration:none;">Войти</a></p>
+            </div>
+        </div>
+
+        <script>
+            function toggleForms() {
+                const l = document.getElementById('loginForm');
+                const r = document.getElementById('registerForm');
+                if(l.style.display === 'none') {
+                    l.style.display = 'block';
+                    r.style.display = 'none';
+                } else {
+                    l.style.display = 'none';
+                    r.style.display = 'block';
+                }
+            }
+        </script>
+    </body>`);
+});
+
+app.post('/login', async (req, res) => {
+    try { await pb.collection('users').authWithPassword(req.body.email, req.body.password); res.redirect('/'); } catch (e) { res.send('Ошибка входа'); }
 });
 
 app.post('/login', async (req, res) => {
