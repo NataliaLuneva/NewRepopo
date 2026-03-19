@@ -288,76 +288,59 @@ app.get('/logout', (req, res) => { pb.authStore.clear(); res.redirect('/login');
 app.post('/purchase', async (req, res) => {
     try {
         let ids = req.body.ids;
-        
-        // 1. Проверка: выбрал ли юзер хоть что-то
-        if (!ids) {
-            return res.status(400).send(`
-                <body style="background:#0f172a; color:white; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
-                    <div style="background:#1e293b; padding:30px; border-radius:15px; text-align:center; border:1px solid #f43f5e;">
-                        <h2 style="color:#f43f5e;">КОРЗИНА ПУСТА</h2>
-                        <p>Вы не выбрали ни одного товара для покупки.</p>
-                        <a href="/" style="color:#6366f1; text-decoration:none; font-weight:bold;">← ВЕРНУТЬСЯ НА СКЛАД</a>
-                    </div>
-                </body>
-            `);
-        }
-
-        // Если пришел один ID (строка), превращаем в массив
+        if (!ids) return res.status(400).send("Ничего не выбрано");
         if (!Array.isArray(ids)) ids = [ids];
 
         const lineItems = [];
-
-        // 2. Собираем товары для Stripe
         for (const id of ids) {
             try {
                 const item = await pb.collection('inventory').getOne(id);
-                
-                // Проверка цены: Stripe не примет товар с ценой 0 или меньше
-                const unitAmount = Math.round(Number(item.price) * 100);
-                if (unitAmount <= 0) continue; 
-
                 lineItems.push({
                     price_data: {
                         currency: 'usd',
                         product_data: { 
                             name: item.device,
-                            description: `ID: ${item.id}` 
+                            // Добавляем описание, чтобы Stripe не ругался на пустые данные
+                            description: `Артикул: ${item.id}` 
                         },
-                        unit_amount: unitAmount,
+                        // Переводим в центы и округляем
+                        unit_amount: Math.round(parseFloat(item.price) * 100),
                     },
                     quantity: 1,
                 });
             } catch (err) {
-                console.error(`Товар с ID ${id} не найден в базе`);
+                console.error(`Товар ${id} не найден`);
             }
         }
 
-        // 3. Проверка: остались ли валидные товары после фильтрации
-        if (lineItems.length === 0) throw new Error("Нет доступных товаров для оплаты");
+        if (lineItems.length === 0) throw new Error("Список товаров пуст или цены некорректны");
 
-        // 4. Создание сессии Stripe
+        // Формируем базовый URL динамически
+        const protocol = req.protocol;
+        const host = req.get('host');
+        const baseURL = `${protocol}://${host}`;
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
-            success_url: `${req.protocol}://${req.get('host')}/?payment=success`,
-            cancel_url: `${req.protocol}://${req.get('host')}/?payment=cancel`,
+            // Stripe ОЧЕНЬ капризен к этим ссылкам. Делаем их полными:
+            success_url: `${baseURL}/?payment=success`,
+            cancel_url: `${baseURL}/?payment=cancel`,
         });
 
-        // Редирект на оплату
+        // 303 Redirect - стандарт для Stripe
         res.redirect(303, session.url);
 
     } catch (e) {
-        console.error("STRIPE ERROR:", e.message);
+        console.error("STRIPE 404/500 ERROR:", e.message);
         res.status(500).send(`
-            <body style="background:#0f172a; color:white; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
-                <div style="background:#1e293b; padding:30px; border-radius:15px; text-align:center; border:1px solid #f43f5e;">
-                    <h2 style="color:#f43f5e;">ОШИБКА ПЛАТЕЖА</h2>
-                    <p style="color:#94a3b8;">${e.message}</p>
-                    <p style="font-size:12px; color:#475569;">Проверьте API ключ Stripe и наличие товаров в PocketBase</p>
-                    <a href="/" style="color:#6366f1; text-decoration:none; font-weight:bold; display:block; margin-top:20px;">← НАЗАД</a>
-                </div>
-            </body>
+            <div style="background:#0f172a; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; font-family:sans-serif;">
+                <h1 style="color:#f43f5e;">ОШИБКА ПЛАТЕЖНОЙ СИСТЕМЫ</h1>
+                <p>${e.message}</p>
+                <p style="color:#475569;">Проверьте, что в Stripe Dashboard созданы нужные настройки и ключ верен.</p>
+                <a href="/" style="color:#6366f1; text-decoration:none; margin-top:20px; border:1px solid #6366f1; padding:10px 20px; border-radius:8px;">Назад на склад</a>
+            </div>
         `);
     }
 });
