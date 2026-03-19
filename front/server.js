@@ -22,7 +22,22 @@ const formatPrice = (val) => {
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
     const me = pb.authStore.model;
-    const isAdmin = me.role === 'admin';
+
+    // --- ЛОГИКА ПОСЛЕ ПОКУПКИ (СПИСАНИЕ ТОВАРОВ) ---
+    if (req.query.purchase === 'success' && req.query.ids) {
+        const boughtIds = req.query.ids.split(',');
+        for (const id of boughtIds) {
+            try {
+                // Помечаем в базе как проданное
+                await pb.collection('inventory').update(id, { status: 'sold' });
+            } catch (e) {
+                console.error(`Ошибка списания товара ${id}:`, e.message);
+            }
+        }
+        // Чистим URL, чтобы при перезагрузке не пытаться списать снова
+        return res.redirect('/?success=true');
+    }
+   const isAdmin = me.role === 'admin';
     const isWorker = me.role === 'worker' || isAdmin;
     const isUser = me.role === 'user';
 
@@ -289,61 +304,46 @@ app.post('/purchase', async (req, res) => {
     try {
         let ids = req.body.ids;
         if (!ids) return res.status(400).send("Ничего не выбрано");
-        if (!Array.isArray(ids)) ids = [ids];
+        
+        // Превращаем в массив, если выбран один товар
+        const idArray = Array.isArray(ids) ? ids : [ids];
 
         const lineItems = [];
-        for (const id of ids) {
+        for (const id of idArray) {
             try {
-                // Достаем товар из PocketBase
                 const item = await pb.collection('inventory').getOne(id);
-                
                 lineItems.push({
                     price_data: {
                         currency: 'usd',
                         product_data: { 
                             name: item.device,
-                            description: `Товар ID: ${item.id}`
+                            description: `ID: ${item.id}`
                         },
-                        // Stripe ждет целое число в центах (1.15$ -> 115)
                         unit_amount: Math.round(parseFloat(item.price) * 100),
                     },
                     quantity: 1,
                 });
-            } catch (err) {
-                console.log(`Пропускаем ID ${id}: не найден в базе`);
-            }
+            } catch (err) { console.log(`Товар ${id} не найден`); }
         }
 
-        if (lineItems.length === 0) throw new Error("Нет валидных товаров для оплаты");
+        if (lineItems.length === 0) throw new Error("Нет доступных товаров");
 
-        // ОПРЕДЕЛЯЕМ URL: Это важно для редиректа обратно
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const host = req.get('host');
         const fullBaseUrl = `${protocol}://${host}`;
 
-        console.log("Создаем сессию Stripe для:", fullBaseUrl);
-
+        // ВАЖНО: Передаем IDs в success_url через запятую
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
-            // Убедись, что эти ссылки ведут на работающие роуты твоего приложения
-            success_url: `${fullBaseUrl}/?purchase=success`,
+            success_url: `${fullBaseUrl}/?purchase=success&ids=${idArray.join(',')}`,
             cancel_url: `${fullBaseUrl}/?purchase=cancel`,
         });
 
-        // ВАЖНО: используем статус 303 для корректного редиректа формы
         res.redirect(303, session.url);
-
     } catch (e) {
-        console.error("STRIPE ERROR:", e.message);
-        res.status(500).send(`
-            <div style="background:#0f172a; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; font-family:sans-serif;">
-                <h1 style="color:#f43f5e;">ОШИБКА STRIPE</h1>
-                <p>${e.message}</p>
-                <a href="/" style="color:#6366f1; text-decoration:none; border:1px solid #6366f1; padding:10px; border-radius:8px; margin-top:20px;">Вернуться</a>
-            </div>
-        `);
+        res.status(500).send(`Ошибка Stripe: ${e.message}`);
     }
 });
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 СИСТЕМА ГОТОВА`));
