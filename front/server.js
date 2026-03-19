@@ -294,52 +294,54 @@ app.post('/purchase', async (req, res) => {
         const lineItems = [];
         for (const id of ids) {
             try {
+                // Достаем товар из PocketBase
                 const item = await pb.collection('inventory').getOne(id);
+                
                 lineItems.push({
                     price_data: {
                         currency: 'usd',
                         product_data: { 
                             name: item.device,
-                            // Добавляем описание, чтобы Stripe не ругался на пустые данные
-                            description: `Артикул: ${item.id}` 
+                            description: `Товар ID: ${item.id}`
                         },
-                        // Переводим в центы и округляем
+                        // Stripe ждет целое число в центах (1.15$ -> 115)
                         unit_amount: Math.round(parseFloat(item.price) * 100),
                     },
                     quantity: 1,
                 });
             } catch (err) {
-                console.error(`Товар ${id} не найден`);
+                console.log(`Пропускаем ID ${id}: не найден в базе`);
             }
         }
 
-        if (lineItems.length === 0) throw new Error("Список товаров пуст или цены некорректны");
+        if (lineItems.length === 0) throw new Error("Нет валидных товаров для оплаты");
 
-        // Формируем базовый URL динамически
-        const protocol = req.protocol;
+        // ОПРЕДЕЛЯЕМ URL: Это важно для редиректа обратно
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const host = req.get('host');
-        const baseURL = `${protocol}://${host}`;
+        const fullBaseUrl = `${protocol}://${host}`;
+
+        console.log("Создаем сессию Stripe для:", fullBaseUrl);
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
-            // Stripe ОЧЕНЬ капризен к этим ссылкам. Делаем их полными:
-            success_url: `${baseURL}/?payment=success`,
-            cancel_url: `${baseURL}/?payment=cancel`,
+            // Убедись, что эти ссылки ведут на работающие роуты твоего приложения
+            success_url: `${fullBaseUrl}/?purchase=success`,
+            cancel_url: `${fullBaseUrl}/?purchase=cancel`,
         });
 
-        // 303 Redirect - стандарт для Stripe
+        // ВАЖНО: используем статус 303 для корректного редиректа формы
         res.redirect(303, session.url);
 
     } catch (e) {
-        console.error("STRIPE 404/500 ERROR:", e.message);
+        console.error("STRIPE ERROR:", e.message);
         res.status(500).send(`
             <div style="background:#0f172a; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; font-family:sans-serif;">
-                <h1 style="color:#f43f5e;">ОШИБКА ПЛАТЕЖНОЙ СИСТЕМЫ</h1>
+                <h1 style="color:#f43f5e;">ОШИБКА STRIPE</h1>
                 <p>${e.message}</p>
-                <p style="color:#475569;">Проверьте, что в Stripe Dashboard созданы нужные настройки и ключ верен.</p>
-                <a href="/" style="color:#6366f1; text-decoration:none; margin-top:20px; border:1px solid #6366f1; padding:10px 20px; border-radius:8px;">Назад на склад</a>
+                <a href="/" style="color:#6366f1; text-decoration:none; border:1px solid #6366f1; padding:10px; border-radius:8px; margin-top:20px;">Вернуться</a>
             </div>
         `);
     }
