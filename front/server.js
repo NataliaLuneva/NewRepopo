@@ -13,6 +13,11 @@ const pb = new PocketBase(PB_URL);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+const formatPrice = (val) => {
+    const p = Number(val) || 0;
+    return p % 1 === 0 ? p.toString() : p.toFixed(2);
+};
+
 // --- ГЛАВНАЯ СТРАНИЦА ---
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
@@ -176,33 +181,27 @@ app.get('/', async (req, res) => {
 });
 
 // --- ЛОГИКА ТОВАРОВ ---
-app.post('/edit-inventory/:id', async (req, res) => {
+app.post('/add-inventory', async (req, res) => {
     try {
-        await pb.collection('inventory').update(req.params.id, { device: req.body.device, price: Number(req.body.price), work: req.body.work });
+        if (!pb.authStore.isValid) return res.redirect('/login');
+        await pb.collection('inventory').create({
+            device: req.body.device,
+            price: Number(req.body.price) || 0,
+            work: "working"
+        });
         res.redirect('/');
     } catch (e) { res.status(500).send("Ошибка: " + e.message); }
 });
 
-app.post('/add-inventory', async (req, res) => {
+app.post('/edit-inventory/:id', async (req, res) => {
     try {
-        const data = {
-            device: req.body.device,
-            price: Number(req.body.price) || 0,
-            work: "working",   // Явно задаем начальное состояние
-        };
-
-        console.log("Попытка добавить товар:", data);
-        await pb.collection('inventory').create(data);
+        await pb.collection('inventory').update(req.params.id, { 
+            device: req.body.device, 
+            price: Number(req.body.price), 
+            work: req.body.work 
+        });
         res.redirect('/');
-    } catch (e) {
-        console.error("ОШИБКА ДОБАВЛЕНИЯ:", e.data);
-        res.status(500).send(`
-            <h3>Ошибка при добавлении товара</h3>
-            <p>Текст ошибки: ${e.message}</p>
-            <p>Детали: ${JSON.stringify(e.data?.data || e.data)}</p>
-            <a href="/">Вернуться назад</a>
-        `);
-    }
+    } catch (e) { res.status(500).send("Ошибка обновления: " + e.message); }
 });
 
 app.get('/toggle-status/:id/:current', async (req, res) => {
@@ -219,50 +218,41 @@ app.get('/del-item/:id', async (req, res) => {
 // --- ЛОГИКА ЮЗЕРОВ И ПРОФИЛЯ ---
 app.post('/update-profile', upload.single('avatar'), async (req, res) => {
     try {
-        // Проверяем, залогинен ли ты вообще
         if (!pb.authStore.isValid) return res.redirect('/login');
-
-        const userId = pb.authStore.model.id;
         const formData = new FormData();
-        let hasData = false;
-
-        // Если меняем пароль
+        
         if (req.body.password && req.body.password.trim() !== "") {
-            if (!req.body.oldPassword) {
-                return res.status(400).send("Ошибка: Введите текущий пароль для подтверждения!");
-            }
+            if (!req.body.oldPassword) throw new Error("Введите старый пароль");
             formData.append('oldPassword', req.body.oldPassword);
             formData.append('password', req.body.password);
             formData.append('passwordConfirm', req.body.passwordConfirm);
-            hasData = true;
         }
-
-        // Если меняем только аватарку
-        if (req.file) {
-            const blob = new Blob([req.file.buffer]);
-            formData.append('avatar', blob, req.file.originalname);
-            hasData = true;
-        }
-
-        if (!hasData) return res.redirect('/');
-
-        // ВАЖНО: Мы используем текущую сессию (pb.authStore.token подставится автоматически)
-        await pb.collection('users').update(userId, formData);
         
-        // После смены пароля токен может стать недействительным, обновляем его
+        if (req.file) formData.append('avatar', new Blob([req.file.buffer]), req.file.originalname);
+        
+        await pb.collection('users').update(pb.authStore.model.id, formData);
         await pb.collection('users').authRefresh();
-        
-        res.redirect('/?success=1');
+        res.redirect('/');
     } catch (e) {
-        console.error("ОШИБКА ПРИ СМЕНЕ ПАРОЛЯ:", e.data);
-        // Если база говорит "Invalid token", значит нужно перелогиниться
-        if (e.status === 401) return res.send("Сессия истекла. Перелогиньтесь.");
-        
-        let msg = e.message;
-        if (e.data?.data?.oldPassword) msg = "Неверный ТЕКУЩИЙ пароль!";
-        if (e.data?.data?.password) msg = "Новый пароль не подходит (минимум 8 символов)!";
-        
-        res.status(500).send("Ошибка: " + msg);
+        // КРАСИВАЯ СТРАНИЦА ОШИБКИ / ИСТЕКШЕЙ СЕССИИ
+        const isAuthError = e.status === 401 || e.message.includes("token");
+        const errorTitle = isAuthError ? "СЕССИЯ ИСТЕКЛА" : "ОШИБКА ОБНОВЛЕНИЯ";
+        const errorMsg = isAuthError 
+            ? "Ваш токен безопасности обновился. Нужно зайти в систему заново." 
+            : (e.data?.data?.oldPassword ? "Неверный текущий пароль!" : e.message);
+
+        res.status(e.status || 500).send(`
+        <body style="background:#0f172a; color:white; font-family:'Segoe UI',sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+            <div style="background:rgba(30,41,59,0.8); backdrop-filter:blur(10px); padding:40px; border-radius:20px; border:1px solid #334155; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.5); max-width:400px;">
+                <div style="font-size:50px; margin-bottom:20px;">${isAuthError ? '🔐' : '⚠️'}</div>
+                <h2 style="color:#f43f5e; margin-bottom:10px; letter-spacing:1px;">${errorTitle}</h2>
+                <p style="color:#94a3b8; line-height:1.6; margin-bottom:30px;">${errorMsg}</p>
+                <a href="/login" style="background:#6366f1; color:white; text-decoration:none; padding:12px 30px; border-radius:10px; font-weight:bold; display:inline-block; transition:0.3s; box-shadow:0 4px 15px rgba(99,102,241,0.4);">
+                    ${isAuthError ? 'ВОЙТИ СНОВА' : 'ВЕРНУТЬСЯ'}
+                </a>
+                ${isAuthError ? '<script>setTimeout(() => { window.location.href = "/login"; }, 5000);</script>' : ''}
+            </div>
+        </body>`);
     }
 });
 
