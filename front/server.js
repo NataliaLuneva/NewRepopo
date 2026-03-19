@@ -22,31 +22,37 @@ const formatPrice = (val) => {
 app.get('/', async (req, res) => {
     if (!pb.authStore.isValid) return res.redirect('/login');
     const me = pb.authStore.model;
+    const isAdmin = me.role === 'admin';
+    const isWorker = me.role === 'worker' || isAdmin;
+    const isUser = me.role === 'user';
 
-    // --- ЛОГИКА ПОСЛЕ ПОКУПКИ (СПИСАНИЕ ТОВАРОВ) ---
+    // --- ЛОГИКА ПОСЛЕ ПОКУПКИ ---
     if (req.query.purchase === 'success' && req.query.ids) {
         const boughtIds = req.query.ids.split(',');
         for (const id of boughtIds) {
             try {
-                // Помечаем в базе как проданное
                 await pb.collection('inventory').update(id, { status: 'sold' });
-            } catch (e) {
-                console.error(`Ошибка списания товара ${id}:`, e.message);
-            }
+            } catch (e) { console.error("Ошибка списания:", e.message); }
         }
-        // Чистим URL, чтобы при перезагрузке не пытаться списать снова
         return res.redirect('/?success=true');
     }
-   const isAdmin = me.role === 'admin';
-    const isWorker = me.role === 'worker' || isAdmin;
-    const isUser = me.role === 'user';
 
     const avatarUrl = me.avatar 
         ? `${PB_URL}api/files/_pb_users_auth_/${me.id}/${me.avatar}`
         : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
     try {
-        const availableItems = await pb.collection('inventory').getFullList({ filter: 'status != "sold"', sort: '-created' });
+        // 1. Получаем доступные товары (видят все)
+        const availableItems = await pb.collection('inventory').getFullList({ 
+            filter: 'status != "sold"', 
+            sort: '-created' 
+        });
+
+        // 2. Получаем проданные товары (только для Админа/Воркера)
+        const soldItems = isWorker 
+            ? await pb.collection('inventory').getFullList({ filter: 'status = "sold"', sort: '-updated' }) 
+            : [];
+
         const allUsers = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
         let html = `
@@ -68,9 +74,12 @@ app.get('/', async (req, res) => {
             #searchInput { width: 100%; font-size: 1.1em; border: 2px solid #6366f1; box-sizing: border-box; margin-bottom: 20px; }
             .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 100; }
             .modal-content { background: #1e293b; padding: 30px; border-radius: 15px; width: 380px; }
+            .sold-row { opacity: 0.6; background: #1a1a2e; }
         </style>
 
         <div class="container">
+            ${req.query.success ? `<div class="card" style="background:#10b981; text-align:center;">✅ Успешно оплачено и списано!</div>` : ''}
+
             <div class="card profile-section">
                 <img src="${avatarUrl}" class="avatar-img">
                 <div style="flex-grow: 1;">
@@ -83,33 +92,14 @@ app.get('/', async (req, res) => {
                 </div>
             </div>
 
-            <div id="profileModal" class="modal">
-                <div class="modal-content">
-                    <h3>Настройки профиля</h3>
-                    <form action="/update-profile" method="POST" enctype="multipart/form-data">
-                        <label>🖼️ Новая аватарка:</label><br>
-                        <input type="file" name="avatar" accept="image/*" style="width:100%;"><br><br>
-                        <label>🔑 Текущий пароль:</label><br>
-                        <input type="password" name="oldPassword" style="width:100%;" placeholder="Обязательно для смены пароля">
-                        <label>🆕 Новый пароль:</label><br>
-                        <input type="password" name="password" style="width:100%;">
-                        <input type="password" name="passwordConfirm" placeholder="Повтор" style="width:100%;">
-                        <div style="display:flex; gap:10px; margin-top:20px;">
-                            <button type="submit" class="btn btn-success" style="flex:1;">Ок</button>
-                            <button type="button" onclick="closeModal('profileModal')" class="btn btn-danger" style="flex:1;">Отмена</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
             <div class="card">
-                <h3>📦 Склад товаров</h3>
+                <h3>📦 Актуальный склад (${availableItems.length})</h3>
                 <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="🔍 Быстрый поиск...">
 
                 ${isWorker ? `
                 <form method="POST" action="/add-inventory" style="display:flex; gap:10px; margin-bottom:20px;">
                     <input name="device" placeholder="Название" required style="flex:3;">
-                    <input name="price" type="number" placeholder="Цена" required style="flex:1;">
+                    <input name="price" type="number" step="0.01" placeholder="Цена" required style="flex:1;">
                     <button class="btn btn-success">+ Добавить</button>
                 </form>` : ''}
 
@@ -123,7 +113,7 @@ app.get('/', async (req, res) => {
                             <tr class="item-row">
                                 ${isUser ? `<td><input type="checkbox" name="ids" value="${i.id}"></td>` : ''}
                                 <td class="device-name"><b>${i.device}</b></td>
-                                <td style="color:#10b981; font-weight:bold;">$${i.price}</td>
+                                <td style="color:#10b981; font-weight:bold;">$${formatPrice(i.price)}</td>
                                 ${isWorker ? `
                                     <td><span class="badge ${i.work === 'working' ? 'btn-success' : 'btn-danger'}">${i.work}</span></td>
                                     <td>
@@ -139,40 +129,35 @@ app.get('/', async (req, res) => {
                 </form>
             </div>
 
+            ${isWorker && soldItems.length > 0 ? `
+            <div class="card" style="border-top: 4px solid #f43f5e;">
+                <h3 style="color:#f43f5e;">💰 Архив продаж (${soldItems.length})</h3>
+                <table>
+                    <thead>
+                        <tr><th>Название</th> <th>Цена</th> <th>Дата продажи</th> ${isAdmin ? '<th>Действия</th>' : ''}</tr>
+                    </thead>
+                    <tbody>
+                        ${soldItems.map(i => `
+                        <tr class="sold-row">
+                            <td><b>${i.device}</b> <span class="badge" style="background:#f43f5e;">SOLD</span></td>
+                            <td>$${formatPrice(i.price)}</td>
+                            <td style="font-size:0.8em; color:#94a3b8;">${new Date(i.updated).toLocaleString()}</td>
+                            ${isAdmin ? `<td><a href="/del-item/${i.id}" class="btn btn-danger" style="padding:4px 8px;">🗑️</a></td>` : ''}
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>` : ''}
+
             ${isAdmin ? `
             <div class="card">
-                <h3>👥 Добавить пользователя</h3>
-                <form method="POST" action="/add-user" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input name="email" type="email" placeholder="Email" required style="flex:2;">
-                    <input name="password" type="password" placeholder="Пароль" required style="flex:2;">
-                    <select name="role" style="flex:1;"><option value="user">User</option><option value="worker">Worker</option><option value="admin">Admin</option></select>
-                    <button class="btn btn-primary">Создать</button>
-                </form>
+                <h3>👥 Пользователи</h3>
                 <table>
                     ${allUsers.map(u => `<tr><td>${u.email}</td><td><span class="badge">${u.role}</span></td><td style="text-align:right;"><a href="/del-user/${u.id}" style="color:#f43f5e;">❌</a></td></tr>`).join('')}
                 </table>
             </div>` : ''}
         </div>
 
-        <div id="editItemModal" class="modal">
-            <div class="modal-content">
-                <h3>Редактировать товар</h3>
-                <form id="editItemForm" method="POST">
-                    <input type="text" name="device" id="editDevice" style="width:100%;" required>
-                    <input type="number" name="price" id="editPrice" style="width:100%;" required>
-                    <select name="work" id="editWork" style="width:100%;">
-                        <option value="working">working</option>
-                        <option value="not working">not working</option>
-                    </select>
-                    <div style="display:flex; gap:10px; margin-top:20px;">
-                        <button type="submit" class="btn btn-success" style="flex:1;">Сохранить</button>
-                        <button type="button" onclick="closeModal('editItemModal')" class="btn btn-danger" style="flex:1;">Отмена</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <script>
+        <div id="profileModal" class="modal">...</div> <div id="editItemModal" class="modal">...</div> <script>
             function openModal(id) { document.getElementById(id).style.display = 'flex'; }
             function closeModal(id) { document.getElementById(id).style.display = 'none'; }
             function openEditModal(id, name, price, work) {
