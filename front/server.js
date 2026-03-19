@@ -221,15 +221,33 @@ app.post('/add-inventory', async (req, res) => {
     }
 });
 
-app.get('/toggle-status/:id/:current', async (req, res) => {
-    const next = req.params.current === 'working' ? 'not working' : 'working';
-    await pb.collection('inventory').update(req.params.id, { work: next });
-    res.redirect('/');
+// Редактирование товара
+app.post('/edit-inventory/:id', async (req, res) => {
+    try {
+        await pb.collection('inventory').update(req.params.id, {
+            device: req.body.device,
+            price: Number(req.body.price),
+            work: req.body.work
+        });
+        res.redirect('/');
+    } catch (e) { res.status(500).send("Ошибка обновления: " + e.message); }
 });
 
+// Удаление товара
 app.get('/del-item/:id', async (req, res) => {
-    await pb.collection('inventory').delete(req.params.id);
-    res.redirect('/');
+    try {
+        await pb.collection('inventory').delete(req.params.id);
+        res.redirect('/');
+    } catch (e) { res.send(e.message); }
+});
+
+// Переключение рабочего состояния (working/not working)
+app.get('/toggle-status/:id/:current', async (req, res) => {
+    try {
+        const next = req.params.current === 'working' ? 'not working' : 'working';
+        await pb.collection('inventory').update(req.params.id, { work: next });
+        res.redirect('/');
+    } catch (e) { res.send(e.message); }
 });
 
 // --- АВТОРИЗАЦИЯ ---
