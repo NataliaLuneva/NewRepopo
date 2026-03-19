@@ -180,16 +180,25 @@ app.get('/', async (req, res) => {
 app.post('/add-inventory', async (req, res) => {
     try {
         const { device, price } = req.body;
-        await pb.collection('inventory').create({
-            device: device,
-            price: Number(price), // Обязательно число!
-            work: 'working',
-            status: 'available'
-        });
+
+        // Проверяем, что пришло название, иначе база опять выдаст ошибку
+        if (!device) return res.status(400).send("Название товара не может быть пустым");
+
+        const data = {
+            "device": device,
+            "price": Number(price) || 0,
+            "work": "working",      // <--- Передаем статус работы (не пустое)
+            "status": "available"   // <--- Передаем статус наличия (не пустое)
+        };
+
+        console.log("Отправка в БД:", data); // Увидишь в логах Coolify, что улетает
+
+        await pb.collection('inventory').create(data);
+        
         res.redirect('/');
-    } catch (e) { 
-        console.error("Add Error:", e.data);
-        res.status(500).send("Ошибка добавления: " + e.message); 
+    } catch (e) {
+        console.error("ОШИБКА ДОБАВЛЕНИЯ:", e.data); // Самый важный лог
+        res.status(500).send(`Ошибка базы: ${e.message}. Проверь логи сервера.`);
     }
 });
 
