@@ -42,16 +42,29 @@ app.get('/', async (req, res) => {
         : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
     try {
-        // 1. Получаем доступные товары
         const availableItems = await pb.collection('inventory').getFullList({ 
             filter: 'status != "sold"', 
             sort: '-created' 
         });
 
-        // 2. Получаем проданные товары (только для персонала)
         const soldItems = isWorker 
             ? await pb.collection('inventory').getFullList({ filter: 'status = "sold"', sort: '-updated' }) 
             : [];
+
+        // --- ЛОГИКА ОТЧЕТА ---
+        let totalRevenue = 0;
+        let salesMap = {};
+        let topProduct = "Нет данных";
+        let maxQty = 0;
+
+        soldItems.forEach(item => {
+            totalRevenue += Number(item.price || 0);
+            salesMap[item.device] = (salesMap[item.device] || 0) + 1;
+            if (salesMap[item.device] > maxQty) {
+                maxQty = salesMap[item.device];
+                topProduct = item.device;
+            }
+        });
 
         const allUsers = isAdmin ? await pb.collection('users').getFullList({ sort: '-created' }) : [];
 
@@ -75,6 +88,7 @@ app.get('/', async (req, res) => {
             .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 100; }
             .modal-content { background: #1e293b; padding: 30px; border-radius: 15px; width: 380px; }
             .sold-row { opacity: 0.6; background: #1a1a2e; }
+            .report-box { display: none; background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px dashed #6366f1; }
         </style>
 
         <div class="container">
@@ -131,7 +145,24 @@ app.get('/', async (req, res) => {
 
             ${isWorker && soldItems.length > 0 ? `
             <div class="card" style="border-top: 4px solid #f43f5e;">
-                <h3 style="color:#f43f5e;">💰 Архив продаж (${soldItems.length})</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="color:#f43f5e; margin:0;">💰 Архив продаж (${soldItems.length})</h3>
+                    <button onclick="toggleReport()" class="btn btn-primary" style="background:#475569;">📊 Отчёт</button>
+                </div>
+
+                <div id="reportBlock" class="report-box">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+                        <div>
+                            <small style="color:#94a3b8;">Общая выручка:</small>
+                            <div style="font-size:1.5em; color:#10b981; font-weight:bold;">$${formatPrice(totalRevenue)}</div>
+                        </div>
+                        <div>
+                            <small style="color:#94a3b8;">Самый продаваемый:</small>
+                            <div style="font-size:1.1em; color:#f59e0b; font-weight:bold;">${topProduct} (${maxQty} шт.)</div>
+                        </div>
+                    </div>
+                </div>
+
                 <table>
                     <thead>
                         <tr><th>Название</th> <th>Цена</th> <th>Дата продажи</th> ${isAdmin ? '<th>Действия</th>' : ''}</tr>
@@ -200,6 +231,10 @@ app.get('/', async (req, res) => {
         <script>
             function openModal(id) { document.getElementById(id).style.display = 'flex'; }
             function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+            function toggleReport() {
+                const b = document.getElementById('reportBlock');
+                b.style.display = b.style.display === 'block' ? 'none' : 'block';
+            }
             function openEditModal(id, name, price, work) {
                 document.getElementById('editItemForm').action = '/edit-inventory/' + id;
                 document.getElementById('editDevice').value = name;
