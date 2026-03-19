@@ -185,24 +185,23 @@ app.post('/edit-inventory/:id', async (req, res) => {
 
 app.post('/add-inventory', async (req, res) => {
     try {
-        const { device, price } = req.body;
-
-        // Шлем только те поля, которые реально нужны
         const data = {
-            "device": device,
-            "price": Number(price) || 0,
-            "work": "working" // Берем значение из твоего списка в PB
+            device: req.body.device,
+            price: Number(req.body.price) || 0,
+            work: "working",   // Явно задаем начальное состояние
         };
 
-        console.log("Отправка в БД (без статуса):", data);
-
+        console.log("Попытка добавить товар:", data);
         await pb.collection('inventory').create(data);
         res.redirect('/');
     } catch (e) {
-        console.error("ОШИБКА:", e.data);
-        // Если база все равно ругается, значит поле 'status' в PB помечено как "Non-empty"
-        // В таком случае зайди в настройки PB и сними галочку "Non-empty" у поля status.
-        res.status(500).send(`Ошибка базы: ${e.message}`);
+        console.error("ОШИБКА ДОБАВЛЕНИЯ:", e.data);
+        res.status(500).send(`
+            <h3>Ошибка при добавлении товара</h3>
+            <p>Текст ошибки: ${e.message}</p>
+            <p>Детали: ${JSON.stringify(e.data?.data || e.data)}</p>
+            <a href="/">Вернуться назад</a>
+        `);
     }
 });
 
