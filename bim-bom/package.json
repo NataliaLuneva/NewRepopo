@@ -1,0 +1,12 @@
+{
+  "name": "btc-discord-bot",
+  "version": "1.0.0",
+  "description": "Bit-Bot for Discord",
+  "main": "index.js",
+  "engines": {
+    "node": "25.8.1"
+  },
+  "scripts": {
+    "start": "node -e \"console.log('[INFO] The container is alive and standing by. Waiting for Scheduled Tasks to execute node index.js...'); setInterval(() => {}, 3600000);\""
+  }
+}
