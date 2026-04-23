@@ -1,4 +1,4 @@
-// Нам больше не нужен require('axios'), используем встроенный fetch!
+/ Нам больше не нужен require('axios'), используем встроенный fetch!
 
 // Безопасное получение токена без "засвета" в коде
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
@@ -6,13 +6,14 @@ const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
 async function getBitcoinPrice() {
     try {
         // Получаем курс в евро
-        const url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur";
+       const url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCEUR";
         const response = await fetch(url);
         
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
         const data = await response.json();
-        return data.bitcoin.eur;
+        // Binance отдает цену строкой с кучей нулей, округляем до 2 знаков
+        return parseFloat(data.price).toFixed(2);
     } catch (error) {
         console.error(`[ERROR] service=btc-bot API timeout or error: ${error.message}`);
         return null;
