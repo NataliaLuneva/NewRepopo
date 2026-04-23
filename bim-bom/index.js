@@ -1,4 +1,4 @@
-/ Нам больше не нужен require('axios'), используем встроенный fetch!
+// Нам больше не нужен require('axios'), используем встроенный fetch!
 
 // Безопасное получение токена без "засвета" в коде
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
