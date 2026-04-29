@@ -15,20 +15,20 @@ async function getBitcoinPrice() {
         // Binance отдает цену строкой с кучей нулей, округляем до 2 знаков
         return parseFloat(data.price).toFixed(2);
     } catch (error) {
-        console.error(`[ERROR] service=btc-bot API timeout or error: ${error.message}`);
+        console.error(`[ERROR] service=bts-bot API timeout or error: ${error.message}`);
         return null;
     }
 }
 
 async function sendToDiscord(price) {
     if (!WEBHOOK_URL) {
-        console.error("[ERROR] service=btc-bot Webhook URL is missing! Define variable.");
+        console.error("[ERROR] service=bts-bot Webhook URL is missing! Define variable.");
         return;
     }
 
     // Формируем сообщение
     const msg = {
-        content: `📈 **Bitcoin radar for Estonia**\nCurrent course: **${price} EUR**`
+        content: `📈 **BTS radar for Estonia**\nCurrent course: **${price} EUR**`
     };
 
     try {
@@ -42,14 +42,14 @@ async function sendToDiscord(price) {
         
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
-        console.log(`[INFO] service=btc-bot BTC: ${price} EUR. Sent to Discord.`);
+        console.log(`[INFO] service=bts-bot BTC: ${price} EUR. Sent to Discord.`);
     } catch (error) {
-        console.error(`[ERROR] service=btc-bot Discord Error: ${error.message}`);
+        console.error(`[ERROR] service=bts-bot Discord Error: ${error.message}`);
     }
 }
 
 async function main() {
-    console.log("[INFO] service=btc-bot Cron job started.");
+    console.log("[INFO] service=bts-bot Cron job started.");
     const btcPrice = await getBitcoinPrice();
     
     if (btcPrice) {
